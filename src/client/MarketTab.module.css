@@ -1,0 +1,85 @@
+.wrap { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px; }
+.intro { color: var(--text-muted, #777); font-size: 13px; line-height: 1.6; margin: 0; }
+.searchRow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.searchInput {
+  flex: 1; min-width: 200px; padding: 8px 12px; border-radius: 8px;
+  border: 1px solid var(--border, #ddd); background: var(--bg, #fff);
+  color: var(--text, #111); font-size: 14px; outline: none;
+}
+.searchInput:focus { border-color: var(--accent, #e63946); }
+.btnSearch {
+  padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
+  background: var(--accent, #e63946); color: #fff; font-weight: 600; font-size: 13px;
+}
+.btnSearch:disabled { opacity: .6; cursor: default; }
+.aiToggle { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text-muted, #777); cursor: pointer; }
+.notice {
+  padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5;
+  background: rgba(230, 57, 70, .07); border: 1px solid rgba(230, 57, 70, .25); color: var(--text, #111);
+}
+.empty { color: var(--text-muted, #777); font-size: 13px; padding: 12px 0; }
+.error { color: var(--danger, #e63946); font-size: 13px; }
+.results { display: flex; flex-direction: column; gap: 14px; }
+.sectionH { font-size: 14px; font-weight: 700; margin: 0 0 8px; }
+.row {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--border, #ddd); border-radius: 10px;
+  background: var(--bg-soft, rgba(128, 128, 128, .05));
+}
+.rowMain { flex: 1; min-width: 0; }
+.rowName { font-weight: 700; font-size: 14px; word-break: break-all; }
+.tagInstalled {
+  display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; color: #2e8b57; background: rgba(63, 178, 127, .12);
+  border: 1px solid rgba(63, 178, 127, .35);
+}
+.rowDesc { color: var(--text-muted, #777); font-size: 13px; line-height: 1.55; margin-top: 3px; }
+.rowMeta { color: var(--text-muted, #999); font-size: 12px; margin-top: 4px; }
+.rowActions { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
+.btnInstall {
+  padding: 6px 14px; border-radius: 8px; border: none; cursor: pointer;
+  background: var(--accent, #e63946); color: #fff; font-weight: 600; font-size: 13px;
+  white-space: nowrap;
+}
+.btnInstall:disabled { opacity: .6; cursor: default; }
+.btnAssess {
+  padding: 6px 14px; border-radius: 8px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border, #ddd);
+  color: var(--text, #111); font-size: 13px; white-space: nowrap;
+}
+.btnAssess:disabled { opacity: .6; cursor: default; }
+
+.introRow { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.mydshLink {
+  flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--accent, #e63946);
+  text-decoration: none; border: 1px solid rgba(230, 57, 70, .35); border-radius: 999px;
+  padding: 3px 12px; white-space: nowrap;
+}
+.mydshLink:hover { background: rgba(230, 57, 70, .08); }
+.tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border, #ddd); padding-bottom: 8px; }
+.tab {
+  padding: 6px 14px; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 13px; font-weight: 600;
+  background: transparent; border: 1px solid transparent; color: var(--text-muted, #777);
+}
+.tabActive { color: var(--accent, #e63946); border-color: var(--border, #ddd); border-bottom-color: transparent; background: var(--bg-soft, rgba(128,128,128,.05)); }
+.catChips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.catChip {
+  padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 600;
+  background: transparent; border: 1px solid var(--border, #ddd); color: var(--text-muted, #777);
+}
+.catChipActive { color: #fff; background: var(--accent, #e63946); border-color: var(--accent, #e63946); }
+.btnUninstall {
+  padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; white-space: nowrap;
+  background: transparent; border: 1px solid var(--danger, #e63946); color: var(--danger, #e63946);
+  font-weight: 600;
+}
+.btnUninstall:disabled { opacity: .6; cursor: default; }
+.rowLink { color: var(--accent, #e63946); text-decoration: none; font-size: 12px; margin-left: 8px; }
+.rowLink:hover { text-decoration: underline; }
+
+.btnMore {
+  margin: 10px auto 4px; display: block; padding: 8px 20px; border-radius: 8px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border, #ddd); color: var(--text, #111);
+  font-size: 13px; font-weight: 600;
+}
+.btnMore:hover { border-color: var(--accent, #e63946); color: var(--accent, #e63946); }

@@ -1,0 +1,24 @@
+# dsh-plugin-market bundle patch：把插件市场挂进 dsh profile 的 host 组合。
+#
+# 插件行（id: plugin-market）以 Service 插件形态挂载：提供
+# `/api/plugin-market/*` 路由（浏览器面板数据通道）：
+#   - search     本地/远程检索 mydsh.dev 插件
+#   - install    一键安装（pnpm add 到当前 profile）
+#   - assess     提交安全评估
+#   - installed  已安装插件清单（读 profile package.json）
+#
+# 安装：`dsh plugin --profile <name> add <本包路径>`，随后重启该 profile。
+- insert:
+    - id: plugin-market
+      name: dsh-plugin-market
+      config:
+        # mydsh.dev 数据源（插件大全 + AI 搜索 + 安全评估）
+        marketBaseUrl: 'https://mydsh.dev'
+        # 安装用的 profile 名（默认当前 web profile）
+        profileName: 'web'
+        # 安装命令前缀：npx pnpm@<版本> 匹配 profile packageManager 声明的 pnpm
+        pnpmCommand: 'npx -y pnpm@11.7.0'
+        # 本机代理（加速 GitHub 下载）；不需要可置空 ''
+        proxyUrl: 'http://127.0.0.1:7897'
+        # 一键安装超时（毫秒）
+        installTimeoutMs: 300000
