@@ -22,3 +22,5 @@
         proxyUrl: 'http://127.0.0.1:7897'
         # 一键安装超时（毫秒）
         installTimeoutMs: 300000
+        # GitHub token（批量校验插件有效性，5000 次/小时；可置空走未认证限流）
+        githubToken: ''  # 也可用环境变量 PLUGIN_MARKET_GH_TOKEN 注入

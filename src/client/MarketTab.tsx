@@ -248,10 +248,14 @@ export function MarketTab({ search, browse, install, uninstall, assess, installe
     finally { setBusyRow(null) }
   }
 
-  const busy: RowBusy = busyRow === null ? null : {
-    installing: busyAction === 'install',
-    uninstalling: busyAction === 'uninstall',
-    assessing: busyAction === 'assess',
+  /** 行级 busy：只有与当前操作行匹配的行显示进行中。 */
+  const busyFor = (name: string): RowBusy => {
+    if (busyRow !== name) return null
+    return {
+      installing: busyAction === 'install',
+      uninstalling: busyAction === 'uninstall',
+      assessing: busyAction === 'assess',
+    }
   }
 
   // 已安装视图：按 sources 展开成行（仓库名 + 依赖名）
@@ -311,7 +315,7 @@ export function MarketTab({ search, browse, install, uninstall, assess, installe
               {browseState.result.plugins.length === 0 ? (
                 <p className={css.empty}>{t('emptyResult')}</p>
               ) : (
-                browseState.result.plugins.map(p => PluginRow(p, busy, handleInstall, handleUninstall, handleAssess, t))
+                browseState.result.plugins.map(p => PluginRow(p, busyFor(p.full_name), handleInstall, handleUninstall, handleAssess, t))
               )}
               {allPlugins !== null && browseState.result.plugins.length < filteredList(browseState.result.category).length ? (
                 <button type="button" className={css.btnMore} onClick={loadMore}>
@@ -350,13 +354,13 @@ export function MarketTab({ search, browse, install, uninstall, assess, installe
               {searchState.result.local.length > 0 ? (
                 <section>
                   <h3 className={css.sectionH}>{t('localTab')}（{searchState.result.local.length}）</h3>
-                  {searchState.result.local.map(p => PluginRow(p, busy, handleInstall, handleUninstall, handleAssess, t))}
+                  {searchState.result.local.map(p => PluginRow(p, busyFor(p.full_name), handleInstall, handleUninstall, handleAssess, t))}
                 </section>
               ) : null}
               {searchState.result.ai.length > 0 ? (
                 <section>
                   <h3 className={css.sectionH}>{t('aiTab')}（{searchState.result.ai.length}）</h3>
-                  {searchState.result.ai.map(p => PluginRow(p, busy, handleInstall, handleUninstall, handleAssess, t))}
+                  {searchState.result.ai.map(p => PluginRow(p, busyFor(p.full_name), handleInstall, handleUninstall, handleAssess, t))}
                 </section>
               ) : null}
               {searchState.result.local.length === 0 && searchState.result.ai.length === 0 ? (
@@ -370,7 +374,7 @@ export function MarketTab({ search, browse, install, uninstall, assess, installe
       {view === 'installed' ? (
         <div className={css.results}>
           {installedRows.length === 0 ? <p className={css.empty}>{t('noInstalled')}</p> : null}
-          {installedRows.map(p => PluginRow(p, busy, handleInstall, handleUninstall, handleAssess, t))}
+          {installedRows.map(p => PluginRow(p, busyFor(p.full_name), handleInstall, handleUninstall, handleAssess, t))}
         </div>
       ) : null}
     </div>

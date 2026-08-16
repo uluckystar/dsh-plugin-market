@@ -22,6 +22,8 @@ export interface PluginMarketConfig {
     readonly pnpmCommand: string;
     /** 本机代理（加速 GitHub 下载）；空串不走代理。 */
     readonly proxyUrl: string;
+    /** GitHub token（批量校验插件有效性用，5000 次/小时；空则用未认证 60 次/小时）。 */
+    readonly githubToken: string;
 }
 /** 插件市场服务：检索 + 安装 + 安全评估 + 已装清单。 */
 export declare class PluginMarketGateway extends Service {
@@ -36,13 +38,27 @@ export declare class PluginMarketGateway extends Service {
     constructor(ctx: Context, config: PluginMarketConfig);
     /** 插件大全：内存缓存 → 磁盘缓存 → 网络拉取（TTL 内零网络请求）。 */
     catalog(): Promise<MarketPlugin[]>;
+    /** 校验结果缓存（磁盘）：{full_name: 'valid' | 'invalid'}。 */
+    private validatedCache;
+    /** 校验是否已在跑。 */
+    private validating;
+    /** 校验磁盘路径。 */
+    private readonly validatedDiskPath;
+    /** 加载已缓存的有效性结果。 */
+    private loadValidated;
+    /** 保存有效性结果到磁盘。 */
+    private saveValidated;
+    /** 后台批量校验：拉每个仓库的 package.json，检查 dsh.bundle/client 声明。 */
+    private startValidation;
+    /** 过滤：invalid 的不显示（未校验的暂显示，校验后自动隐藏）。 */
+    private filterValid;
     /** 插件分类：按 topics 匹配第一个命中的分类，未命中归 other。 */
     private categoryOf;
     /** 分类浏览：按分类列出插件（星数降序；limit=0 返回全部），附各分类计数。 */
     browse(category: string, limit?: number): Promise<MarketBrowseResult>;
     /** 检索：本地匹配 + 可选 AI 推荐（ai=false 秒回；AI 最多等 6 秒，失败不阻塞）。 */
     search(query: string, ai: boolean): Promise<MarketSearchResult>;
-    /** 一键安装：在 profile 目录跑 pnpm add。 */
+    /** 一键安装：先校验仓库是有效 DSH 插件（有 dsh.bundle/client 声明或 cordis.patch.yml），再 pnpm add。 */
     install(fullName: string): Promise<MarketInstallResult>;
     /** 卸载：pnpm remove（支持依赖名或 owner/repo 仓库名）。 */
     uninstall(fullName: string): Promise<MarketUninstallResult>;
