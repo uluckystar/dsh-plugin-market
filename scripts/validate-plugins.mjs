@@ -3,14 +3,15 @@
  * 插件有效性批量校验（独立脚本，不依赖 dsh-web 进程）
  *
  * 读取 $DSH_HOME/storages/plugin_market_catalog.json 的插件列表，
- * 逐个请求 GitHub 的 package.json，检查 dsh.bundle / dsh.client 声明，
+ * 逐个请求 GitHub 的 package.json，检查 dsh.bundle.patch 声明，
  * 结果写入 plugin_market_validated.json（断点续传：已校验的跳过）。
  *
  * dsh-plugin-market 插件的 browse/search 会读取 validated.json，
  * 把 invalid（非 DSH 插件）从列表隐藏——所以本脚本跑完后刷新即生效。
  *
  * 用法：
- *   PLUGIN_MARKET_GH_TOKEN=ghp_xxx node scripts/validate-plugins.mjs
+ *   PLUGIN_MARKET_GH_TOKEN=<github-token> node scripts/validate-plugins.mjs
+ *   PLUGIN_MARKET_RECHECK_VALID=1 node scripts/validate-plugins.mjs  # 标准升级后重查旧 valid
  * 环境变量：
  *   PLUGIN_MARKET_GH_TOKEN  GitHub token（5000/h，建议配置）
  *   DSH_HOME                默认 ~/.dsh
@@ -23,6 +24,7 @@ const base = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 const catalogPath = join(base, 'storages', 'plugin_market_catalog.json')
 const validatedPath = join(base, 'storages', 'plugin_market_validated.json')
 const token = process.env.PLUGIN_MARKET_GH_TOKEN ?? ''
+const recheckValid = process.env.PLUGIN_MARKET_RECHECK_VALID === '1' || process.argv.includes('--recheck-valid')
 
 const headers = { 'user-agent': 'dsh-plugin-market/0.1 (+https://mydsh.dev)' }
 if (token !== '') headers.authorization = `Bearer ${token}`
@@ -42,8 +44,8 @@ async function checkOne(fullName) {
     const body = await resp.json()
     if (!body.content) return 'invalid'
     const pkg = JSON.parse(Buffer.from(body.content, 'base64').toString('utf8'))
-    const hasDsh = pkg.dsh !== undefined && (pkg.dsh.bundle !== undefined || pkg.dsh.client !== undefined)
-    return hasDsh ? 'valid' : 'invalid'
+    const patch = pkg?.dsh?.bundle?.patch
+    return typeof patch === 'string' && patch.trim() !== '' ? 'valid' : 'invalid'
   } catch {
     return 'retry' // 网络错误也重试（而不是标 invalid 误杀）
   }
@@ -63,30 +65,14 @@ async function main() {
   // 按星数降序（热门优先），跳过已校验的
   const todo = [...plugins]
     .sort((a, b) => (b.stargazers_count ?? 0) - (a.stargazers_count ?? 0))
-    .filter(p => validated[p.full_name] === undefined)
+    .filter(p => recheckValid ? validated[p.full_name] !== 'invalid' : validated[p.full_name] === undefined)
 
-  console.log(`共 ${plugins.length} 个插件，已校验 ${Object.keys(validated).length}，待校验 ${todo.length}`)
+  console.log(`共 ${plugins.length} 个插件，已校验 ${Object.keys(validated).length}，待校验 ${todo.length}${recheckValid ? '（重查旧 valid）' : ''}`)
   console.log(`token: ${token !== '' ? '已配置' : '未配置（未认证限流 60/h，会很慢）'}`)
 
-  // 快速通道：catalog 已带 GitHub topics，打了官方 `dsh-plugin` topic 的仓库
-  // 100% 是插件（作者主动声明），直接标记 valid，零 API 调用。
-  // 一劳永逸：标记过的进 validated.json，之后永不重查；新插件靠增量重跑补上。
-  let quick = 0
-  const slow = []
-  for (const p of todo) {
-    if ((p.topics ?? []).includes('dsh-plugin')) {
-      validated[p.full_name] = 'valid'
-      quick++
-    } else {
-      slow.push(p)
-    }
-  }
-  if (quick > 0) {
-    writeFileSync(validatedPath, JSON.stringify(validated), 'utf8')
-    console.log(`[${new Date().toISOString()}] 快速通道：${quick} 个 dsh-plugin topic 仓库直接标记 valid，剩余 ${slow.length} 个逐仓校验`)
-  }
-  // 剩余的无 topic 候选（可能是没打 topic 的真插件，也可能是无关仓库）
-  const rest = [...slow]
+  // 不把 topic 当作有效性证明：topic 只能说明候选意图，最终以 package.json 的
+  // dsh.bundle.patch 声明为准，避免把不能直接启用的仓库展示给用户。
+  const rest = [...todo]
 
   let done = 0
   let retries = 0

@@ -30,6 +30,8 @@ export declare const zh: {
     aiTab: string;
     install: string;
     installing: string;
+    enabling: string;
+    disabling: string;
     uninstall: string;
     uninstalling: string;
     installed: string;
@@ -92,6 +94,8 @@ export declare const en: {
     aiTab: string;
     install: string;
     installing: string;
+    enabling: string;
+    disabling: string;
     uninstall: string;
     uninstalling: string;
     installed: string;

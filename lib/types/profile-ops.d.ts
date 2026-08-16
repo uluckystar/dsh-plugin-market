@@ -11,6 +11,10 @@ export interface ProfileManifest {
 }
 /** 白名单:这些 bundle 永远保留在 active 列表(核心底座,删了 DSH 起不来)。 */
 export declare const CORE_BUNDLE_WHITELIST: string[];
+/** 判断 package.json 清单是否声明了可作为 profile 启用层加载的 bundle patch。 */
+export declare function manifestDeclaresProfileBundle(manifest: unknown): boolean;
+/** 判断已安装包是否可安全加入 profile 启用列表。 */
+export declare function packageDeclaresProfileBundle(packageDir: string): boolean;
 /** 读取 profile package.json(容错:缺失/损坏抛错)。 */
 export declare function readProfile(dir: string): ProfileManifest;
 /** 备份 profile package.json,返回备份路径。 */

@@ -87,6 +87,10 @@ export declare class PluginMarketGateway extends Service {
     private clearInstallFailure;
     /** 依赖名 → 已安装插件目录(node_modules 下,可能为 link 包)。 */
     private installedPackageDir;
+    /** 是否可作为 profile 启用层安全加载。 */
+    private isLoadableBundle;
+    /** 当前运行中已经生效的插件模块名。 */
+    private activeModuleNames;
     /**
      * 当前已存在的 entry id:优先取运行中 Loader 的真实清单,并补充源码内置
      * base/web-app patch。这样既能捕获 dsh-TUI 这类重复入口,又不依赖

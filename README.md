@@ -1,6 +1,6 @@
 # dsh-plugin-market · 插件市场
 
-在 DeepSeek Harness 设置页直接浏览 **mydsh.dev 插件大全**——分类浏览、本地/AI 搜索、安装、启用、停用、卸载和安全评估。非官方社区 mydsh.dev 出品。
+在 DeepSeek Harness 设置页直接浏览 **mydsh.dev 插件大全**——分类浏览、本地/AI 搜索、安装、启用、停用、卸载和安全评估。只展示已核验为可直接启用的 DSH 插件。非官方社区 mydsh.dev 出品。
 
 ![dsh-plugin-market](https://img.shields.io/badge/dsh-plugin-market-e63946?style=flat-square)
 
@@ -8,8 +8,8 @@
 
 - **分类浏览**：全部 / Agent / MCP / 开发工具 / 界面 / 视觉 / LLM / 记忆 / 数据 / 集成 共 10 类，带计数，按星数排序，加载更多
 - **本地搜索**：毫秒级本地匹配（名称 / 中英简介 / 描述 / topics）
-- **AI 搜索**：勾选 🤖 AI 后调用 mydsh.dev 的 AI 搜索（gpt-5.6-luna），语义理解你的需求
-- **安装后可控启用**：安装只把插件加入当前配置，是否启用由用户明确点击「启用」决定
+- **AI 搜索**：勾选 🤖 AI 后调用 mydsh.dev 的 AI 搜索服务，语义理解你的需求
+- **安装后可控启用**：安装只下载插件，不自动启用；是否启用由用户明确点击「启用」决定
 - **启用 / 停用 / 卸载**：启用后提示是否需要重启；停用保留安装，卸载会清理安装和启用状态
 - **生命周期状态**：未安装、已安装未启用、已启用需重启、已启用已生效、不兼容不建议启用、安装失败
 - **安全评估**：查询 mydsh.dev 安全报告，无报告则引导提交
@@ -31,7 +31,7 @@ dsh plugin --profile web add github:uluckystar/dsh-plugin-market
 dsh plugin --profile web add /path/to/dsh-plugin-market
 ```
 
-安装本插件后重启 profile（`pm2 restart dsh-web` 或重启 DSH），在 **设置 → 插件 → 插件市场** 查看。后续通过插件市场安装的插件需要先「启用」，再按提示重启 DSH 后生效。
+安装本插件后重启 DSH，在 **设置 → 插件 → 插件市场** 查看。后续通过插件市场安装的插件需要先「启用」，再按提示重启 DSH 后生效。
 
 ## 配置（cordis.patch.yml）
 
@@ -64,7 +64,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-market
 
 ## 数据源
 
-[MyDSH · DeepSeek Harness 插件大全](https://mydsh.dev/plugins) —— 自动同步官方 dsh-plugin topic 的 3000+ 插件，每个带 AI 中英总结、安全报告。非官方社区。
+[MyDSH · DeepSeek Harness 插件大全](https://mydsh.dev/plugins) —— 自动同步 DSH 插件候选，并通过 package.json 中的 `dsh.bundle.patch` 声明校验是否可直接启用；本地校验缓存会过滤不能直接启用的仓库。非官方社区。
 
 ## License
 
@@ -74,11 +74,13 @@ MIT
 
 插件生命周期七态(面向最终用户):未安装 / 已安装未启用 / 已启用需重启 / 已启用已生效 / 已停用需重启 / 不兼容不建议启用 / 安装失败。
 
-- **安装**:只把插件装进当前配置(加入依赖);是否启用由用户显式操作。
-- **启用/停用**:启用=加入启用列表;停用=移出启用列表但保留安装,可随时重新启用。
-- **卸载**:移除依赖并移出启用列表。
+- **安装**:只下载插件;是否启用由用户显式操作。
+- **启用/停用**:启用后按提示重启生效;停用会保留安装,可随时重新启用。
+- **卸载**:移除安装并清理启用状态。
 - **安全性**:每次写配置前自动备份;写后重新读取校验(核心组件保护:DSH 自带底座永不误删);校验失败自动回滚。
+- **可启用校验**:只允许声明了 `dsh.bundle.patch` 且本地补丁文件存在的插件启用;纯界面包或不完整包会被拒绝。
 - **不兼容检测**:插件与 DSH 自带组件冲突(如重复注册)时,标记「不兼容·不建议启用」并拒绝启用。
 - **已生效判定**:启用后,当前运行中的 DSH 已加载该插件 → 「已启用」;否则 → 「已启用·重启后生效」。
 - **安装失败记录**:失败原因持久保存,界面显示「重试安装」。
-- 验证:`node scripts/lifecycle-smoke.mjs`(临时 profile,15 项断言,不碰真实配置)。
+- 验证:`node scripts/lifecycle-smoke.mjs`(临时 profile,18 项断言,不碰真实配置)。
+- 严格重查旧缓存:`PLUGIN_MARKET_RECHECK_VALID=1 node scripts/validate-plugins.mjs`。

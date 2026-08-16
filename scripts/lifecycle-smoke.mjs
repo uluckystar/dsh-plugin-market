@@ -8,8 +8,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
-  CORE_BUNDLE_WHITELIST, addBundle, backupProfile, patchConflictIds, patchEntryIds,
-  readProfile, removeBundle, validateManifest, writeProfileSafe,
+  CORE_BUNDLE_WHITELIST, addBundle, backupProfile, manifestDeclaresProfileBundle, packageDeclaresProfileBundle,
+  patchConflictIds, patchEntryIds, readProfile, removeBundle, validateManifest, writeProfileSafe,
 } from '../lib/profile-ops.js'
 
 let pass = 0
@@ -39,6 +39,10 @@ writeFileSync(join(profile, 'node_modules/@deepseek-ai/dsh-base/cordis.patch.yml
 writeFileSync(join(profile, 'node_modules/fake-plugin/package.json'), JSON.stringify({ name: 'fake-plugin', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
 writeFileSync(join(profile, 'node_modules/fake-plugin/cordis.patch.yml'),
   '- insert:\n    - id: fake-entry\n')
+mkdirSync(join(profile, 'node_modules/client-only-plugin'), { recursive: true })
+writeFileSync(join(profile, 'node_modules/client-only-plugin/package.json'), JSON.stringify({
+  name: 'client-only-plugin', dsh: { client: { inject: [], platform: 'web' } },
+}))
 
 console.log('== 基础读写 ==')
 check('readProfile 读取正常', readProfile(profile).bundles.length === 2)
@@ -46,6 +50,9 @@ const bak = backupProfile(profile)
 check('backupProfile 生成备份', existsSync(bak))
 const v = validateManifest(profile)
 check('validateManifest 通过(核心白名单在)', v.bundles.includes('@deepseek-ai/dsh-base'))
+check('manifestDeclaresProfileBundle 识别 bundle 插件', manifestDeclaresProfileBundle({ dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+check('packageDeclaresProfileBundle 识别可启用插件', packageDeclaresProfileBundle(join(profile, 'node_modules/fake-plugin')))
+check('纯界面插件不能直接加入启用列表', !packageDeclaresProfileBundle(join(profile, 'node_modules/client-only-plugin')))
 
 console.log('== 写后校验 + 回滚 ==')
 // 恶意写入:移除 dsh-base → 应被拒并回滚

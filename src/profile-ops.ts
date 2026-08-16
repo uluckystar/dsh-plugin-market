@@ -17,6 +17,26 @@ export interface ProfileManifest {
 /** 白名单:这些 bundle 永远保留在 active 列表(核心底座,删了 DSH 起不来)。 */
 export const CORE_BUNDLE_WHITELIST = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 
+
+/** 判断 package.json 清单是否声明了可作为 profile 启用层加载的 bundle patch。 */
+export function manifestDeclaresProfileBundle(manifest: unknown): boolean {
+  if (typeof manifest !== 'object' || manifest === null) return false
+  const declared = (manifest as { dsh?: { bundle?: { patch?: unknown } } }).dsh?.bundle?.patch
+  return typeof declared === 'string' && declared.trim() !== ''
+}
+
+/** 判断已安装包是否可安全加入 profile 启用列表。 */
+export function packageDeclaresProfileBundle(packageDir: string): boolean {
+  try {
+    const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as unknown
+    if (!manifestDeclaresProfileBundle(manifest)) return false
+    const declared = (manifest as { dsh?: { bundle?: { patch?: string } } }).dsh?.bundle?.patch
+    return typeof declared === 'string' && existsSync(join(packageDir, declared))
+  } catch {
+    return false
+  }
+}
+
 /** 读取 profile package.json(容错:缺失/损坏抛错)。 */
 export function readProfile(dir: string): ProfileManifest {
   const pkgPath = join(dir, 'package.json')
@@ -89,10 +109,16 @@ export function writeProfileSafe(dir: string, manifest: ProfileManifest): string
   const pkgPath = join(dir, 'package.json')
   const backup = backupProfile(dir)
   try {
+    const current = JSON.parse(readFileSync(pkgPath, 'utf8') || '{}') as {
+      dsh?: { profile?: Record<string, unknown> } & Record<string, unknown>
+    } & Record<string, unknown>
     const next = {
-      ...JSON.parse(readFileSync(pkgPath, 'utf8') || '{}') as Record<string, unknown>,
+      ...current,
       dependencies: manifest.dependencies,
-      dsh: { profile: { bundles: manifest.bundles } },
+      dsh: {
+        ...(current.dsh ?? {}),
+        profile: { ...(current.dsh?.profile ?? {}), bundles: manifest.bundles },
+      },
     }
     writeFileSync(pkgPath, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
     // 写后重新读取校验(含核心白名单)

@@ -46,7 +46,7 @@ type SearchState =
   | { readonly status: 'error'; readonly message: string }
 
 /** 行操作 busy 状态。 */
-type RowBusy = { readonly installing: boolean; readonly uninstalling: boolean; readonly assessing: boolean } | null
+type RowBusy = { readonly installing: boolean; readonly enabling: boolean; readonly disabling: boolean; readonly uninstalling: boolean; readonly assessing: boolean } | null
 
 /** 状态徽章文案与样式(用户语言)。 */
 function statusBadge(status: MarketPluginStatus | undefined, t: (key: PluginMarketLocaleKey) => string): ReactNode {
@@ -78,28 +78,28 @@ function statusActions(
   switch (status) {
     case 'enabled-active':
     case 'enabled-restart':
-      push(<button key="d" type="button" className={css.btnDisable} disabled={busy?.uninstalling === true} onClick={() => onDisable(p.full_name)}>{t('disable')}</button>)
-      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{t('uninstall')}</button>)
+      push(<button key="d" type="button" className={css.btnDisable} disabled={busy?.disabling === true} onClick={() => onDisable(p.full_name)}>{busy?.disabling === true ? t('disabling') : t('disable')}</button>)
+      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{busy?.uninstalling === true ? t('uninstalling') : t('uninstall')}</button>)
       break
     case 'disabled-restart':
-      push(<button key="e" type="button" className={css.btnEnable} disabled={busy?.installing === true} onClick={() => onEnable(p.full_name)}>{t('enable')}</button>)
-      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{t('uninstall')}</button>)
+      push(<button key="e" type="button" className={css.btnEnable} disabled={busy?.enabling === true} onClick={() => onEnable(p.full_name)}>{busy?.enabling === true ? t('enabling') : t('enable')}</button>)
+      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{busy?.uninstalling === true ? t('uninstalling') : t('uninstall')}</button>)
       break
     case 'installed':
-      push(<button key="e" type="button" className={css.btnEnable} disabled={busy?.installing === true} onClick={() => onEnable(p.full_name)}>{t('enable')}</button>)
-      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{t('uninstall')}</button>)
+      push(<button key="e" type="button" className={css.btnEnable} disabled={busy?.enabling === true} onClick={() => onEnable(p.full_name)}>{busy?.enabling === true ? t('enabling') : t('enable')}</button>)
+      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{busy?.uninstalling === true ? t('uninstalling') : t('uninstall')}</button>)
       break
     case 'incompatible':
-      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{t('uninstall')}</button>)
+      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{busy?.uninstalling === true ? t('uninstalling') : t('uninstall')}</button>)
       break
     case 'install-failed':
-      push(<button key="i" type="button" className={css.btnInstall} disabled={busy?.installing === true} onClick={() => onInstall(p.full_name)}>{t('retryInstall')}</button>)
-      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{t('uninstall')}</button>)
+      push(<button key="i" type="button" className={css.btnInstall} disabled={busy?.installing === true} onClick={() => onInstall(p.full_name)}>{busy?.installing === true ? t('installing') : t('retryInstall')}</button>)
+      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{busy?.uninstalling === true ? t('uninstalling') : t('uninstall')}</button>)
       break
     default:
-      push(<button key="i" type="button" className={css.btnInstall} disabled={busy?.installing === true} onClick={() => onInstall(p.full_name)}>{t('install')}</button>)
+      push(<button key="i" type="button" className={css.btnInstall} disabled={busy?.installing === true} onClick={() => onInstall(p.full_name)}>{busy?.installing === true ? t('installing') : t('install')}</button>)
   }
-  push(<button key="a" type="button" className={css.btnAssess} disabled={busy?.assessing === true} onClick={() => onAssess(p.full_name)}>{t('assess')}</button>)
+  push(<button key="a" type="button" className={css.btnAssess} disabled={busy?.assessing === true} onClick={() => onAssess(p.full_name)}>{busy?.assessing === true ? t('assessing') : t('assess')}</button>)
   return <>{btns}</>
 }
 
@@ -153,7 +153,7 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
   /** 全量生命周期(状态/冲突/失败记录),拉一次供各行查询。 */
   const [lifecycleState, setLifecycleState] = useState<MarketLifecycleResult | null>(null)
   const [busyRow, setBusyRow] = useState<string | null>(null)
-  const [busyAction, setBusyAction] = useState<'install' | 'uninstall' | 'assess'>('install')
+  const [busyAction, setBusyAction] = useState<'install' | 'enable' | 'disable' | 'uninstall' | 'assess'>('install')
   const [notice, setNotice] = useState('')
   const [mydshLink, setMydshLink] = useState('https://mydsh.dev/plugins')
   // 全量 catalog 本地缓存（一次拉取，切分类零网络请求）
@@ -284,7 +284,7 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
   }
 
   const handleEnable = async (name: string) => {
-    setBusyRow(name); setBusyAction('install'); setNotice('')
+    setBusyRow(name); setBusyAction('enable'); setNotice('')
     try {
       const r = await enable(name)
       await afterMutation(r.ok, r.ok ? (r.restartRequired ? t('enabledRestartHint') : r.detail) : r.detail)
@@ -293,7 +293,7 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
   }
 
   const handleDisable = async (name: string) => {
-    setBusyRow(name); setBusyAction('uninstall'); setNotice('')
+    setBusyRow(name); setBusyAction('disable'); setNotice('')
     try {
       const r = await disable(name)
       await afterMutation(r.ok, r.ok ? (r.restartRequired ? t('disabledRestartHint') : r.detail) : r.detail)
@@ -324,6 +324,8 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
     if (busyRow !== name) return null
     return {
       installing: busyAction === 'install',
+      enabling: busyAction === 'enable',
+      disabling: busyAction === 'disable',
       uninstalling: busyAction === 'uninstall',
       assessing: busyAction === 'assess',
     }
