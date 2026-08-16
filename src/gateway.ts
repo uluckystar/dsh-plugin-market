@@ -198,7 +198,7 @@ export class PluginMarketGateway extends Service {
 
       // 串行校验（contents API 有独立次级限流，串行 + 延时最稳）；限流时等待后重试
       for (let i = 0; i < todo.length; i++) {
-        const p = todo[i]
+        const p = todo[i]!
         try {
           const controller = new AbortController()
           const timer = setTimeout(() => controller.abort(), 10000)
@@ -241,8 +241,15 @@ export class PluginMarketGateway extends Service {
     }
   }
 
-  /** 过滤：invalid 的不显示（未校验的暂显示，校验后自动隐藏）。 */
+  /** 过滤：invalid 的不显示（每次从磁盘刷新，独立校验脚本更新后无需重启即生效）。 */
   private filterValid(plugins: readonly MarketPlugin[]): MarketPlugin[] {
+    // 磁盘文件由独立脚本 validate-plugins.mjs 更新；这里每次读取保证实时
+    try {
+      if (existsSync(this.validatedDiskPath)) {
+        const disk = JSON.parse(readFileSync(this.validatedDiskPath, 'utf8')) as Record<string, 'valid' | 'invalid'>
+        this.validatedCache = disk
+      }
+    } catch { /* 读取失败用内存缓存 */ }
     return plugins.filter(p => this.validatedCache[p.full_name] !== 'invalid')
   }
 

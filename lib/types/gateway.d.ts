@@ -50,7 +50,7 @@ export declare class PluginMarketGateway extends Service {
     private saveValidated;
     /** 后台批量校验：拉每个仓库的 package.json，检查 dsh.bundle/client 声明。 */
     private startValidation;
-    /** 过滤：invalid 的不显示（未校验的暂显示，校验后自动隐藏）。 */
+    /** 过滤：invalid 的不显示（每次从磁盘刷新，独立校验脚本更新后无需重启即生效）。 */
     private filterValid;
     /** 插件分类：按 topics 匹配第一个命中的分类，未命中归 other。 */
     private categoryOf;
