@@ -15,9 +15,13 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import s from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import {
+  CORE_BUNDLE_WHITELIST, addBundle, patchConflictIds, patchEntryIds, readProfile, removeBundle,
+} from './profile-ops.ts'
+import {
   MARKET_CATEGORIES,
   type MarketAssessResult, type MarketBrowseResult, type MarketInstallResult,
-  type MarketInstalledResult, type MarketPlugin, type MarketSearchResult, type MarketUninstallResult,
+  type MarketInstalledResult, type MarketLifecycleResult, type MarketPlugin, type MarketPluginLifecycle,
+  type MarketPluginStatus, type MarketSearchResult, type MarketToggleResult, type MarketUninstallResult,
 } from './types.ts'
 
 const execAsync = promisify(execCallback)
@@ -84,6 +88,11 @@ export class PluginMarketGateway extends Service {
   private catalogCache: { at: number; plugins: MarketPlugin[] } | null = null
   /** 磁盘缓存路径（重启不丢，避免每次启动重新拉 2MB）。 */
   private readonly catalogDiskPath: string
+  /** 生命周期故障记录（安装失败等,full_name → 上次错误)。 */
+  private readonly lifecycleDiskPath: string
+  private lifecycleFailures: Record<string, string> = {}
+  /** 当前进程已加载的模块名集合(用于「已生效」判断)。 */
+  private loadedModuleNames = new Set<string>()
 
   constructor(ctx: Context, config: PluginMarketConfig) {
     super(ctx, 'pluginMarket')
@@ -101,7 +110,16 @@ export class PluginMarketGateway extends Service {
     const base = process.env.DSH_HOME ?? join(homedir(), '.dsh')
     this.catalogDiskPath = join(base, 'storages', 'plugin_market_catalog.json')
     this.validatedDiskPath = join(base, 'storages', 'plugin_market_validated.json')
+    this.lifecycleDiskPath = join(base, 'storages', 'plugin_market_lifecycle.json')
     this.loadValidated()
+    this.loadLifecycleFailures()
+    // 采样当前进程已加载模块(Loader 入口的 moduleName),用于「已启用且已生效」判定。
+    try {
+      const inventory = ctx.get('pluginInventory') as { list(): { entries: Array<{ moduleName: string }> } } | undefined
+      if (inventory !== undefined) {
+        for (const entry of inventory.list().entries) this.loadedModuleNames.add(entry.moduleName)
+      }
+    } catch { /* inventory 缺席时按「需重启」处理 */ }
     this.ctx.effect(() => {
       const disposers = makeRoutes(this).map(route => this.ctx.webServer.register(route))
       return () => { for (const d of disposers) d() }
@@ -372,7 +390,7 @@ export class PluginMarketGateway extends Service {
         headers: this.config.githubToken !== '' ? { 'user-agent': 'dsh-plugin-market/0.1 (+https://mydsh.dev)', authorization: `Bearer ${this.config.githubToken}` } : { 'user-agent': 'dsh-plugin-market/0.1 (+https://mydsh.dev)' },
       })
       if (pkgResp.status === 404) {
-        return { ok: false, fullName: name, detail: '该仓库没有 package.json，不是可安装的 DSH 插件包', restartRequired: false, durationMs: 0 }
+        return { ok: false, fullName: name, detail: '该仓库缺少可安装信息，暂不能作为 DSH 插件安装。', restartRequired: false, durationMs: 0 }
       }
       if (pkgResp.ok) {
         const pkg = await pkgResp.json() as { content?: string }
@@ -384,27 +402,31 @@ export class PluginMarketGateway extends Service {
           if (!hasDsh) {
             return {
               ok: false, fullName: name,
-              detail: '⚠️ 该仓库不是标准 DSH 插件（package.json 缺少 dsh.bundle / dsh.client 声明）。安装后 DSH 不会加载它。已取消安装。',
+              detail: '该项目不是可直接安装到 DSH 的插件，已取消安装。',
               restartRequired: false, durationMs: 0,
             }
           }
         }
       }
     } catch (e) {
-      // 校验失败（网络/限流）不阻塞安装，但记录
-      console.log(`[plugin-market] 安装前校验跳过: ${String(e)}`)
+      // 生产默认安全:无法确认时不继续安装,避免把不可用项目写入用户配置。
+      console.log(`[plugin-market] 安装前校验失败: ${String(e)}`)
+      return { ok: false, fullName: name, detail: '暂时无法确认该项目是否可安装，请稍后重试。', restartRequired: false, durationMs: Date.now() - started }
     }
 
     try {
       const spec = `github:${name}`
       const detail = await this.runPnpm(dir, ['add', spec])
+      this.clearInstallFailure(name)
+      // 安装只负责「装进来」;是否启用由用户显式操作(见 enable)。
       return {
         ok: true, fullName: name,
-        detail: (detail || '安装完成') + '\n\n⚠️ 需重启 DSH（不是刷新页面）：cordis 插件组合在启动时构建，重启 dsh-web 进程后才生效。',
-        restartRequired: true, durationMs: Date.now() - started,
+        detail: (detail || '安装完成') + '\n\n下一步:在插件行上点「启用」加入启用列表(可随时停用/卸载)。',
+        restartRequired: false, durationMs: Date.now() - started,
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
+      this.recordInstallFailure(name, msg)
       return { ok: false, fullName: name, detail: msg.slice(-1500), restartRequired: false, durationMs: Date.now() - started }
     }
   }
@@ -429,7 +451,14 @@ export class PluginMarketGateway extends Service {
         if (found) depName = found[0]
       }
       const detail = await this.runPnpm(dir, ['remove', depName])
-      return { ok: true, fullName: name, detail: detail || '卸载完成', restartRequired: true, durationMs: Date.now() - started }
+      // 卸载 = 移除依赖 + 移出启用列表(备份写后校验)
+      try {
+        const { backup } = removeBundle(dir, depName)
+        return { ok: true, fullName: name, detail: (detail || '卸载完成') + '。', restartRequired: true, durationMs: Date.now() - started, backupPath: backup }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        return { ok: true, fullName: name, detail: `${detail || '卸载完成'}。\n⚠️ 已移除依赖,但移出启用列表失败: ${msg}`, restartRequired: true, durationMs: Date.now() - started }
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
       return { ok: false, fullName: name, detail: msg.slice(-1500), restartRequired: false, durationMs: Date.now() - started }
@@ -521,6 +550,203 @@ export class PluginMarketGateway extends Service {
     const dir = join(base, 'profiles', this.config.profileName)
     return existsSync(dir) ? dir : null
   }
+
+  // ===== 插件生命周期(生产化)=====
+
+  /** 加载历史安装失败记录。 */
+  private loadLifecycleFailures(): void {
+    try {
+      if (existsSync(this.lifecycleDiskPath)) {
+        this.lifecycleFailures = JSON.parse(readFileSync(this.lifecycleDiskPath, 'utf8')) as Record<string, string>
+      }
+    } catch { /* 损坏视为空 */ }
+  }
+
+  /** 记录一次安装失败(写入磁盘,重启后仍可见)。 */
+  private recordInstallFailure(fullName: string, error: string): void {
+    this.lifecycleFailures[fullName] = error.slice(0, 400)
+    try {
+      mkdirSync(join(this.lifecycleDiskPath, '..'), { recursive: true })
+      writeFileSync(this.lifecycleDiskPath, JSON.stringify(this.lifecycleFailures, null, 2), 'utf8')
+    } catch { /* 记录失败不阻塞 */ }
+  }
+
+  /** 清除安装失败记录(安装成功后)。 */
+  private clearInstallFailure(fullName: string): void {
+    if (this.lifecycleFailures[fullName] === undefined) return
+    delete this.lifecycleFailures[fullName]
+    try { writeFileSync(this.lifecycleDiskPath, JSON.stringify(this.lifecycleFailures, null, 2), 'utf8') } catch { /* ignore */ }
+  }
+
+  /** 依赖名 → 已安装插件目录(node_modules 下,可能为 link 包)。 */
+  private installedPackageDir(depName: string): string | null {
+    const dir = this.profileDir()
+    if (!dir) return null
+    const pkgDir = join(dir, 'node_modules', depName)
+    return existsSync(join(pkgDir, 'package.json')) ? pkgDir : null
+  }
+
+  /**
+   * 当前已存在的 entry id:优先取运行中 Loader 的真实清单,并补充源码内置
+   * base/web-app patch。这样既能捕获 dsh-TUI 这类重复入口,又不依赖
+   * profile/node_modules 是否安装了官方 bundle 包。
+   */
+  private coreEntryIds(): Set<string> {
+    const ids = new Set<string>()
+    try {
+      const inventory = this.ctx.get('pluginInventory') as
+        | { list(): { entries: Array<{ entryId: string }> } } | undefined
+      if (inventory !== undefined) {
+        for (const entry of inventory.list().entries) ids.add(String(entry.entryId))
+      }
+    } catch { /* inventory 缺席时走文件兜底 */ }
+
+    // 文件兜底:本地开发版 dsh-web 的 cwd 是 deepseek-harness checkout。
+    for (const rel of ['packages/bundle/base/cordis.patch.yml', 'packages/bundle/web-app/cordis.patch.yml']) {
+      try {
+        const patch = join(process.cwd(), rel)
+        if (existsSync(patch)) {
+          for (const id of patchEntryIds(readFileSync(patch, 'utf8'))) ids.add(id)
+        }
+      } catch { /* ignore */ }
+    }
+    return ids
+  }
+
+  /** 已安装表 → 生命周期推导输入。 */
+  private async lifecycleInput(): Promise<{ depByRepo: Map<string, string>; repos: Set<string> }> {
+    const installed = await this.installedWithSources()
+    const depByRepo = new Map<string, string>()
+    for (const [dep, src] of Object.entries(installed.sources)) depByRepo.set(src, dep)
+    return { depByRepo, repos: installed.names }
+  }
+
+  /**
+   * 推导一个插件当前的生命周期状态(用户语言,见类型注释)。
+   * @param fullName - owner/repo 或依赖名。
+   * @param input - 已安装依赖表(可复用,避免重复读盘)。
+   */
+  private lifecycleFor(fullName: string, input: { depByRepo: Map<string, string>; repos: Set<string> }): MarketPluginLifecycle {
+    const depName = input.depByRepo.get(fullName) ?? (input.repos.has(fullName) ? fullName : undefined)
+    // 未安装
+    if (depName === undefined) {
+      const lastError = this.lifecycleFailures[fullName]
+      return lastError !== undefined
+        ? { status: 'install-failed', restartRequired: false, lastError }
+        : { status: 'not-installed', restartRequired: false }
+    }
+    // 已安装:是否在启用列表
+    const dir = this.profileDir()
+    let enabled = false
+    try {
+      if (dir) enabled = readProfile(dir).bundles.includes(depName)
+    } catch { /* profile 读取失败按未启用处理 */ }
+    const pluginDir = this.installedPackageDir(depName)
+    const conflicts = pluginDir === null ? [] : patchConflictIds(pluginDir, this.coreEntryIds())
+    if (!enabled) {
+      if (conflicts.length > 0) {
+        return {
+          status: 'incompatible', restartRequired: false, installedName: depName,
+          reason: '与当前 DSH 配置不兼容，启用可能导致启动失败。',
+        }
+      }
+      return this.loadedModuleNames.has(depName)
+        ? { status: 'disabled-restart', restartRequired: true, installedName: depName }
+        : { status: 'installed', restartRequired: false, installedName: depName }
+    }
+    // 已启用:当前进程是否已加载(已生效 vs 需重启)
+    if (this.loadedModuleNames.has(depName)) return { status: 'enabled-active', restartRequired: false, installedName: depName }
+    if (conflicts.length > 0) {
+      return {
+        status: 'incompatible', restartRequired: false, installedName: depName,
+        reason: '与当前 DSH 配置不兼容，重启可能失败，建议先停用。',
+      }
+    }
+    return { status: 'enabled-restart', restartRequired: true, installedName: depName }
+  }
+
+  /** 全量生命周期(供列表/已安装页)。 */
+  async lifecycle(): Promise<MarketLifecycleResult> {
+    const input = await this.lifecycleInput()
+    const items: Record<string, MarketPluginLifecycle> = {}
+    for (const name of input.depByRepo.keys()) {
+      items[name] = this.lifecycleFor(name, input)
+    }
+    for (const failed of Object.keys(this.lifecycleFailures)) {
+      if (items[failed] === undefined) items[failed] = this.lifecycleFor(failed, input)
+    }
+    return { ok: true, profile: this.config.profileName, items }
+  }
+
+  /** 单个插件状态(已安装页用)。 */
+  async status(fullName: string): Promise<MarketPluginLifecycle> {
+    return this.lifecycleFor(fullName.trim(), await this.lifecycleInput())
+  }
+
+  /** 启用:加入启用列表(保留依赖关系不动)。冲突或核心组件拒绝,写前备份写后校验。 */
+  async enable(fullName: string): Promise<MarketToggleResult> {
+    const name = (fullName ?? '').trim()
+    const input = await this.lifecycleInput()
+    const depName = input.depByRepo.get(name) ?? (input.repos.has(name) ? name : undefined)
+    if (depName === undefined) {
+      return { ok: false, fullName: name, status: 'not-installed', detail: '请先安装该插件,再启用。', restartRequired: false }
+    }
+    if (CORE_BUNDLE_WHITELIST.includes(depName)) {
+      return { ok: false, fullName: name, status: 'enabled-active', detail: '这是 DSH 自带组件,无需操作。', restartRequired: false }
+    }
+    const dir = this.profileDir()
+    if (!dir) return { ok: false, fullName: name, status: 'installed', detail: '找不到当前配置目录', restartRequired: false }
+    // 启用前冲突检测:patch 与核心撞 id → 拒绝(避免启动失败)
+    const pluginDir = this.installedPackageDir(depName)
+    if (pluginDir !== null) {
+      const conflicts = patchConflictIds(pluginDir, this.coreEntryIds())
+      if (conflicts.length > 0) {
+        return {
+          ok: false, fullName: name, status: 'incompatible',
+          detail: '该插件与当前 DSH 配置不兼容，启用可能导致启动失败，已取消。',
+          restartRequired: false,
+        }
+      }
+    }
+    try {
+      const { backup, changed } = addBundle(dir, depName)
+      if (!changed) {
+        return { ok: true, fullName: name, status: 'enabled-active', detail: '该插件已在启用列表中。', restartRequired: false }
+      }
+      return {
+        ok: true, fullName: name, status: 'enabled-restart',
+        detail: '已加入启用列表。重启 DSH 后生效。', restartRequired: true, backupPath: backup,
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return { ok: false, fullName: name, status: 'installed', detail: `启用失败: ${msg}`, restartRequired: false }
+    }
+  }
+
+  /** 禁用:移出启用列表,保留依赖关系(可随时重新启用)。 */
+  async disable(fullName: string): Promise<MarketToggleResult> {
+    const name = (fullName ?? '').trim()
+    const input = await this.lifecycleInput()
+    const depName = input.depByRepo.get(name) ?? (input.repos.has(name) ? name : undefined)
+    if (depName === undefined) {
+      return { ok: false, fullName: name, status: 'not-installed', detail: '该插件尚未安装。', restartRequired: false }
+    }
+    const dir = this.profileDir()
+    if (!dir) return { ok: false, fullName: name, status: 'installed', detail: '找不到当前配置目录', restartRequired: false }
+    try {
+      const { backup, changed } = removeBundle(dir, depName)
+      if (!changed) {
+        return { ok: true, fullName: name, status: 'installed', detail: '该插件本来就不在启用列表。', restartRequired: false }
+      }
+      return {
+        ok: true, fullName: name, status: 'disabled-restart',
+        detail: '已停用（仍保留安装，可随时重新启用）。重启 DSH 后生效。', restartRequired: true, backupPath: backup,
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return { ok: false, fullName: name, status: 'enabled-restart', detail: `停用失败: ${msg}`, restartRequired: false }
+    }
+  }
 }
 
 /** 路由表：浏览器面板经同源 JSON 接口读写。 */
@@ -569,6 +795,31 @@ export function makeRoutes(gateway: PluginMarketGateway): import('@deepseek-ai/d
         const body = await readJson(req) as { repo?: string }
         respond(res, gateway.uninstall(body.repo ?? ''))
       },
+    },
+    {
+      kind: 'exact', path: '/api/plugin-market/enable',
+      handler: async (req, res) => {
+        const body = await readJson(req) as { repo?: string }
+        respond(res, gateway.enable(body.repo ?? ''))
+      },
+    },
+    {
+      kind: 'exact', path: '/api/plugin-market/disable',
+      handler: async (req, res) => {
+        const body = await readJson(req) as { repo?: string }
+        respond(res, gateway.disable(body.repo ?? ''))
+      },
+    },
+    {
+      kind: 'exact', path: '/api/plugin-market/status',
+      handler: async (req, res) => {
+        const body = await readJson(req) as { repo?: string }
+        respond(res, gateway.status(body.repo ?? ''))
+      },
+    },
+    {
+      kind: 'exact', path: '/api/plugin-market/lifecycle',
+      handler: async (_req, res) => respond(res, gateway.lifecycle()),
     },
     {
       kind: 'exact', path: '/api/plugin-market/browse',

@@ -83,3 +83,28 @@
   font-size: 13px; font-weight: 600;
 }
 .btnMore:hover { border-color: var(--accent, #e63946); color: var(--accent, #e63946); }
+
+/* 生命周期状态徽章(用户语言) */
+.tagStatus {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  padding: 2px 8px; border-radius: 10px; margin-left: 8px;
+  vertical-align: middle;
+}
+.tagStatusInstalled { background: #e8f0fe; color: #1a56db; }
+.tagStatusRestart { background: #fef3c7; color: #b45309; }
+.tagStatusActive { background: #dcfce7; color: #15803d; }
+.tagStatusBad { background: #fee2e2; color: #b91c1c; }
+
+/* 启用/停用按钮 */
+.btnEnable, .btnDisable {
+  padding: 6px 14px; border-radius: 8px; cursor: pointer;
+  font-size: 12px; font-weight: 600; border: 1px solid var(--border, #ddd);
+}
+.btnEnable { background: #dcfce7; color: #15803d; border-color: #86efac; }
+.btnEnable:hover { background: #bbf7d0; }
+.btnDisable { background: #fef3c7; color: #b45309; border-color: #fde68a; }
+.btnDisable:hover { background: #fde68a; }
+.btnEnable:disabled, .btnDisable:disabled { opacity: .6; cursor: default; }
+
+/* 已安装视图的提示行(冲突原因/失败原因) */
+.rowNote { font-size: 12px; color: var(--muted, #666); margin: 2px 0 10px 2px; }

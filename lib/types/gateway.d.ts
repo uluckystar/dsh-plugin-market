@@ -7,7 +7,7 @@
  */
 import { Context, Service } from '@deepseek-ai/cordis';
 import s from '@deepseek-ai/schemastery';
-import { type MarketAssessResult, type MarketBrowseResult, type MarketInstallResult, type MarketInstalledResult, type MarketPlugin, type MarketSearchResult, type MarketUninstallResult } from './types.ts';
+import { type MarketAssessResult, type MarketBrowseResult, type MarketInstallResult, type MarketInstalledResult, type MarketLifecycleResult, type MarketPlugin, type MarketPluginLifecycle, type MarketSearchResult, type MarketToggleResult, type MarketUninstallResult } from './types.ts';
 /** 部署可调项（cordis.patch.yml config 可改）。 */
 export interface PluginMarketConfig {
     /** mydsh.dev 数据源基址。 */
@@ -35,6 +35,11 @@ export declare class PluginMarketGateway extends Service {
     private catalogCache;
     /** 磁盘缓存路径（重启不丢，避免每次启动重新拉 2MB）。 */
     private readonly catalogDiskPath;
+    /** 生命周期故障记录（安装失败等,full_name → 上次错误)。 */
+    private readonly lifecycleDiskPath;
+    private lifecycleFailures;
+    /** 当前进程已加载的模块名集合(用于「已生效」判断)。 */
+    private loadedModuleNames;
     constructor(ctx: Context, config: PluginMarketConfig);
     /** 插件大全：内存缓存 → 磁盘缓存 → 网络拉取（TTL 内零网络请求）。 */
     catalog(): Promise<MarketPlugin[]>;
@@ -74,6 +79,36 @@ export declare class PluginMarketGateway extends Service {
     installed(): Promise<MarketInstalledResult>;
     /** 当前 profile 目录。 */
     private profileDir;
+    /** 加载历史安装失败记录。 */
+    private loadLifecycleFailures;
+    /** 记录一次安装失败(写入磁盘,重启后仍可见)。 */
+    private recordInstallFailure;
+    /** 清除安装失败记录(安装成功后)。 */
+    private clearInstallFailure;
+    /** 依赖名 → 已安装插件目录(node_modules 下,可能为 link 包)。 */
+    private installedPackageDir;
+    /**
+     * 当前已存在的 entry id:优先取运行中 Loader 的真实清单,并补充源码内置
+     * base/web-app patch。这样既能捕获 dsh-TUI 这类重复入口,又不依赖
+     * profile/node_modules 是否安装了官方 bundle 包。
+     */
+    private coreEntryIds;
+    /** 已安装表 → 生命周期推导输入。 */
+    private lifecycleInput;
+    /**
+     * 推导一个插件当前的生命周期状态(用户语言,见类型注释)。
+     * @param fullName - owner/repo 或依赖名。
+     * @param input - 已安装依赖表(可复用,避免重复读盘)。
+     */
+    private lifecycleFor;
+    /** 全量生命周期(供列表/已安装页)。 */
+    lifecycle(): Promise<MarketLifecycleResult>;
+    /** 单个插件状态(已安装页用)。 */
+    status(fullName: string): Promise<MarketPluginLifecycle>;
+    /** 启用:加入启用列表(保留依赖关系不动)。冲突或核心组件拒绝,写前备份写后校验。 */
+    enable(fullName: string): Promise<MarketToggleResult>;
+    /** 禁用:移出启用列表,保留依赖关系(可随时重新启用)。 */
+    disable(fullName: string): Promise<MarketToggleResult>;
 }
 /** 路由表：浏览器面板经同源 JSON 接口读写。 */
 export declare function makeRoutes(gateway: PluginMarketGateway): import('@deepseek-ai/dsh-host-webserver').WebRoute[];

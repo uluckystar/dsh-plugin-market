@@ -5,7 +5,8 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import type { PluginMarketLocaleKey } from './locales.ts'
 import type {
   MarketAssessResult, MarketBrowseResult, MarketInstallResult,
-  MarketInstalledResult, MarketPlugin, MarketSearchResult, MarketUninstallResult,
+  MarketInstalledResult, MarketLifecycleResult, MarketPlugin, MarketPluginLifecycle,
+  MarketPluginStatus, MarketSearchResult, MarketToggleResult, MarketUninstallResult,
 } from '../types.ts'
 import css from './MarketTab.module.css'
 
@@ -15,6 +16,10 @@ export interface MarketTabInjected {
   browse: (category: string, limit?: number) => Promise<MarketBrowseResult>
   install: (repo: string) => Promise<MarketInstallResult>
   uninstall: (repo: string) => Promise<MarketUninstallResult>
+  enable: (repo: string) => Promise<MarketToggleResult>
+  disable: (repo: string) => Promise<MarketToggleResult>
+  status: (repo: string) => Promise<MarketPluginLifecycle>
+  lifecycle: () => Promise<MarketLifecycleResult>
   assess: (repo: string) => Promise<MarketAssessResult>
   installed: () => Promise<MarketInstalledResult>
 }
@@ -43,11 +48,69 @@ type SearchState =
 /** 行操作 busy 状态。 */
 type RowBusy = { readonly installing: boolean; readonly uninstalling: boolean; readonly assessing: boolean } | null
 
-/** 渲染一个插件行（带安装/卸载/评估 + mydsh 详情引流）。 */
-function PluginRow(
+/** 状态徽章文案与样式(用户语言)。 */
+function statusBadge(status: MarketPluginStatus | undefined, t: (key: PluginMarketLocaleKey) => string): ReactNode {
+  switch (status) {
+    case 'installed': return <span className={`${css.tagStatus} ${css.tagStatusInstalled}`}>{t('stInstalled')}</span>
+    case 'enabled-restart': return <span className={`${css.tagStatus} ${css.tagStatusRestart}`}>{t('stEnabledRestart')}</span>
+    case 'enabled-active': return <span className={`${css.tagStatus} ${css.tagStatusActive}`}>{t('stEnabled')}</span>
+    case 'disabled-restart': return <span className={`${css.tagStatus} ${css.tagStatusRestart}`}>{t('stDisabledRestart')}</span>
+    case 'incompatible': return <span className={`${css.tagStatus} ${css.tagStatusBad}`}>{t('stIncompatible')}</span>
+    case 'install-failed': return <span className={`${css.tagStatus} ${css.tagStatusBad}`}>{t('stFailed')}</span>
+    default: return null
+  }
+}
+
+/** 按状态渲染动作按钮(用户语言,无内部术语)。 */
+function statusActions(
   p: MarketPlugin,
+  status: MarketPluginStatus | undefined,
   busy: RowBusy,
   onInstall: (name: string) => void,
+  onEnable: (name: string) => void,
+  onDisable: (name: string) => void,
+  onUninstall: (name: string) => void,
+  onAssess: (name: string) => void,
+  t: (key: PluginMarketLocaleKey) => string,
+): ReactNode {
+  const btns: ReactNode[] = []
+  const push = (node: ReactNode) => { btns.push(node) }
+  switch (status) {
+    case 'enabled-active':
+    case 'enabled-restart':
+      push(<button key="d" type="button" className={css.btnDisable} disabled={busy?.uninstalling === true} onClick={() => onDisable(p.full_name)}>{t('disable')}</button>)
+      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{t('uninstall')}</button>)
+      break
+    case 'disabled-restart':
+      push(<button key="e" type="button" className={css.btnEnable} disabled={busy?.installing === true} onClick={() => onEnable(p.full_name)}>{t('enable')}</button>)
+      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{t('uninstall')}</button>)
+      break
+    case 'installed':
+      push(<button key="e" type="button" className={css.btnEnable} disabled={busy?.installing === true} onClick={() => onEnable(p.full_name)}>{t('enable')}</button>)
+      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{t('uninstall')}</button>)
+      break
+    case 'incompatible':
+      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{t('uninstall')}</button>)
+      break
+    case 'install-failed':
+      push(<button key="i" type="button" className={css.btnInstall} disabled={busy?.installing === true} onClick={() => onInstall(p.full_name)}>{t('retryInstall')}</button>)
+      push(<button key="u" type="button" className={css.btnUninstall} disabled={busy?.uninstalling === true} onClick={() => onUninstall(p.full_name)}>{t('uninstall')}</button>)
+      break
+    default:
+      push(<button key="i" type="button" className={css.btnInstall} disabled={busy?.installing === true} onClick={() => onInstall(p.full_name)}>{t('install')}</button>)
+  }
+  push(<button key="a" type="button" className={css.btnAssess} disabled={busy?.assessing === true} onClick={() => onAssess(p.full_name)}>{t('assess')}</button>)
+  return <>{btns}</>
+}
+
+/** 渲染一个插件行(状态徽章 + 按状态动作 + mydsh 详情引流)。 */
+function PluginRow(
+  p: MarketPlugin,
+  status: MarketPluginStatus | undefined,
+  busy: RowBusy,
+  onInstall: (name: string) => void,
+  onEnable: (name: string) => void,
+  onDisable: (name: string) => void,
   onUninstall: (name: string) => void,
   onAssess: (name: string) => void,
   t: (key: PluginMarketLocaleKey) => string,
@@ -60,7 +123,7 @@ function PluginRow(
       <div className={css.rowMain}>
         <div className={css.rowName}>
           {p.full_name}
-          {p.installed ? <span className={css.tagInstalled}>{t('installedTag')}</span> : null}
+          {statusBadge(status, t)}
         </div>
         <div className={css.rowDesc}>{desc}</div>
         <div className={css.rowMeta}>
@@ -72,40 +135,14 @@ function PluginRow(
         </div>
       </div>
       <div className={css.rowActions}>
-        {p.installed ? (
-          <button
-            type="button"
-            className={css.btnUninstall}
-            disabled={busy?.uninstalling === true}
-            onClick={() => onUninstall(p.full_name)}
-          >
-            {busy?.uninstalling ? t('uninstalling') : t('uninstall')}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className={css.btnInstall}
-            disabled={busy?.installing === true}
-            onClick={() => onInstall(p.full_name)}
-          >
-            {busy?.installing ? t('installing') : t('install')}
-          </button>
-        )}
-        <button
-          type="button"
-          className={css.btnAssess}
-          disabled={busy?.assessing === true}
-          onClick={() => onAssess(p.full_name)}
-        >
-          {busy?.assessing ? t('assessing') : t('assess')}
-        </button>
+        {statusActions(p, status, busy, onInstall, onEnable, onDisable, onUninstall, onAssess, t)}
       </div>
     </div>
   )
 }
 
 /** Render the plugin market Settings tab. */
-export function MarketTab({ search, browse, install, uninstall, assess, installed, t }: MarketTabProps): ReactNode {
+export function MarketTab({ search, browse, install, uninstall, enable, disable, status, lifecycle, assess, installed, t }: MarketTabProps): ReactNode {
   const [view, setView] = useState<'browse' | 'search' | 'installed'>('browse')
   const [category, setCategory] = useState<string>('all')
   const [query, setQuery] = useState('')
@@ -113,6 +150,8 @@ export function MarketTab({ search, browse, install, uninstall, assess, installe
   const [browseState, setBrowseState] = useState<ViewState>({ status: 'idle' })
   const [searchState, setSearchState] = useState<SearchState>({ status: 'idle' })
   const [installedState, setInstalledState] = useState<MarketInstalledResult | null>(null)
+  /** 全量生命周期(状态/冲突/失败记录),拉一次供各行查询。 */
+  const [lifecycleState, setLifecycleState] = useState<MarketLifecycleResult | null>(null)
   const [busyRow, setBusyRow] = useState<string | null>(null)
   const [busyAction, setBusyAction] = useState<'install' | 'uninstall' | 'assess'>('install')
   const [notice, setNotice] = useState('')
@@ -203,10 +242,22 @@ export function MarketTab({ search, browse, install, uninstall, assess, installe
     }
   }
 
-  // 首次进入：默认浏览「全部」+ 拉已安装
+  const loadLifecycle = async () => {
+    try {
+      setLifecycleState(await lifecycle())
+    } catch { /* 生命周期不可用时行无状态徽章 */ }
+  }
+
+  /** 行状态:lifecycle 的 key 是 owner/repo。 */
+  const statusOf = (name: string): MarketPluginStatus | undefined => lifecycleState?.items[name]?.status
+  const reasonOf = (name: string): string | undefined => lifecycleState?.items[name]?.reason
+  const lastErrorOf = (name: string): string | undefined => lifecycleState?.items[name]?.lastError
+
+  // 首次进入：默认浏览「全部」+ 拉已安装 + 拉生命周期
   useEffect(() => {
     void runBrowse('all')
     void loadInstalled()
+    void loadLifecycle()
   }, [])
 
   const switchView = (v: typeof view) => {
@@ -214,25 +265,45 @@ export function MarketTab({ search, browse, install, uninstall, assess, installe
     setNotice('')
     if (v === 'browse') void runBrowse(category)
     if (v === 'installed') void loadInstalled()
+    void loadLifecycle()
   }
 
   const afterMutation = async (ok: boolean, detail: string) => {
     setNotice(ok ? detail : `⚠️ ${detail.slice(0, 200)}`)
-    // 刷新已安装状态 + 当前视图
+    // 刷新已安装状态 + 生命周期 + 当前视图
     await loadInstalled()
+    await loadLifecycle()
     if (view === 'browse') void runBrowse(category)
   }
 
   const handleInstall = async (name: string) => {
     setBusyRow(name); setBusyAction('install'); setNotice('')
-    try { await afterMutation(...await install(name).then(r => [r.ok, r.ok ? t('restartHint') : r.detail] as [boolean, string])) }
+    try { await afterMutation(...await install(name).then(r => [r.ok, r.detail] as [boolean, string])) }
     catch (e) { setNotice(`⚠️ ${String(e)}`) }
+    finally { setBusyRow(null) }
+  }
+
+  const handleEnable = async (name: string) => {
+    setBusyRow(name); setBusyAction('install'); setNotice('')
+    try {
+      const r = await enable(name)
+      await afterMutation(r.ok, r.ok ? (r.restartRequired ? t('enabledRestartHint') : r.detail) : r.detail)
+    } catch (e) { setNotice(`⚠️ ${String(e)}`) }
+    finally { setBusyRow(null) }
+  }
+
+  const handleDisable = async (name: string) => {
+    setBusyRow(name); setBusyAction('uninstall'); setNotice('')
+    try {
+      const r = await disable(name)
+      await afterMutation(r.ok, r.ok ? (r.restartRequired ? t('disabledRestartHint') : r.detail) : r.detail)
+    } catch (e) { setNotice(`⚠️ ${String(e)}`) }
     finally { setBusyRow(null) }
   }
 
   const handleUninstall = async (name: string) => {
     setBusyRow(name); setBusyAction('uninstall'); setNotice('')
-    try { await afterMutation(...await uninstall(name).then(r => [r.ok, r.ok ? t('uninstalledHint') : r.detail] as [boolean, string])) }
+    try { await afterMutation(...await uninstall(name).then(r => [r.ok, r.detail] as [boolean, string])) }
     catch (e) { setNotice(`⚠️ ${String(e)}`) }
     finally { setBusyRow(null) }
   }
@@ -258,20 +329,35 @@ export function MarketTab({ search, browse, install, uninstall, assess, installe
     }
   }
 
-  // 已安装视图：按 sources 展开成行（仓库名 + 依赖名）
-  const installedRows: MarketPlugin[] = installedState
-    ? Object.entries(installedState.sources).map(([dep, src]) => ({
-        full_name: src.includes('/') && !src.startsWith('@') ? src : dep,
-        description: dep,
-        zh_desc: dep,
+  // 已安装视图：优先用 lifecycle(带状态),回退到 sources 展开
+  const lifecycleRows: MarketPlugin[] = lifecycleState
+    ? Object.entries(lifecycleState.items).map(([name, life]) => ({
+        full_name: name,
+        description: life.installedName ?? name,
+        zh_desc: life.installedName ?? name,
         language: '',
         stargazers_count: 0,
         forks_count: 0,
         topics: [],
-        html_url: `https://github.com/${src.includes('/') && !src.startsWith('@') ? src : dep}`,
+        html_url: `https://github.com/${name}`,
         installed: true,
       }))
     : []
+  const installedRows: MarketPlugin[] = lifecycleRows.length > 0
+    ? lifecycleRows
+    : (installedState
+      ? Object.entries(installedState.sources).map(([dep, src]) => ({
+          full_name: src.includes('/') && !src.startsWith('@') ? src : dep,
+          description: dep,
+          zh_desc: dep,
+          language: '',
+          stargazers_count: 0,
+          forks_count: 0,
+          topics: [],
+          html_url: `https://github.com/${src.includes('/') && !src.startsWith('@') ? src : dep}`,
+          installed: true,
+        }))
+      : [])
 
   const counts = browseState.status === 'ready' ? browseState.result.counts : null
 
@@ -315,7 +401,7 @@ export function MarketTab({ search, browse, install, uninstall, assess, installe
               {browseState.result.plugins.length === 0 ? (
                 <p className={css.empty}>{t('emptyResult')}</p>
               ) : (
-                browseState.result.plugins.map(p => PluginRow(p, busyFor(p.full_name), handleInstall, handleUninstall, handleAssess, t))
+                browseState.result.plugins.map(p => PluginRow(p, statusOf(p.full_name), busyFor(p.full_name), handleInstall, handleEnable, handleDisable, handleUninstall, handleAssess, t))
               )}
               {allPlugins !== null && browseState.result.plugins.length < filteredList(browseState.result.category).length ? (
                 <button type="button" className={css.btnMore} onClick={loadMore}>
@@ -354,13 +440,13 @@ export function MarketTab({ search, browse, install, uninstall, assess, installe
               {searchState.result.local.length > 0 ? (
                 <section>
                   <h3 className={css.sectionH}>{t('localTab')}（{searchState.result.local.length}）</h3>
-                  {searchState.result.local.map(p => PluginRow(p, busyFor(p.full_name), handleInstall, handleUninstall, handleAssess, t))}
+                  {searchState.result.local.map(p => PluginRow(p, statusOf(p.full_name), busyFor(p.full_name), handleInstall, handleEnable, handleDisable, handleUninstall, handleAssess, t))}
                 </section>
               ) : null}
               {searchState.result.ai.length > 0 ? (
                 <section>
                   <h3 className={css.sectionH}>{t('aiTab')}（{searchState.result.ai.length}）</h3>
-                  {searchState.result.ai.map(p => PluginRow(p, busyFor(p.full_name), handleInstall, handleUninstall, handleAssess, t))}
+                  {searchState.result.ai.map(p => PluginRow(p, statusOf(p.full_name), busyFor(p.full_name), handleInstall, handleEnable, handleDisable, handleUninstall, handleAssess, t))}
                 </section>
               ) : null}
               {searchState.result.local.length === 0 && searchState.result.ai.length === 0 ? (
@@ -374,7 +460,18 @@ export function MarketTab({ search, browse, install, uninstall, assess, installe
       {view === 'installed' ? (
         <div className={css.results}>
           {installedRows.length === 0 ? <p className={css.empty}>{t('noInstalled')}</p> : null}
-          {installedRows.map(p => PluginRow(p, busyFor(p.full_name), handleInstall, handleUninstall, handleAssess, t))}
+          {installedRows.map(p => {
+            const st = statusOf(p.full_name)
+            const reason = reasonOf(p.full_name)
+            const failed = lastErrorOf(p.full_name)
+            return (
+              <div key={p.full_name}>
+                {PluginRow(p, st, busyFor(p.full_name), handleInstall, handleEnable, handleDisable, handleUninstall, handleAssess, t)}
+                {reason ? <p className={css.rowNote}>{reason}</p> : null}
+                {failed ? <p className={css.rowNote}>{t('failedHint')}: {failed.slice(0, 160)}</p> : null}
+              </div>
+            )
+          })}
         </div>
       ) : null}
     </div>

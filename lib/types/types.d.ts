@@ -65,6 +65,8 @@ export interface MarketUninstallResult {
     /** 是否需要重启 profile 生效。 */
     readonly restartRequired: boolean;
     readonly durationMs: number;
+    /** 修改前 profile 备份文件路径(可回滚)。 */
+    readonly backupPath?: string;
 }
 /** 安全评估提交结果。 */
 export interface MarketAssessResult {
@@ -88,4 +90,45 @@ export interface MarketInstalledResult {
 export interface MarketFailure {
     readonly code: string;
     readonly message: string;
+}
+/**
+ * 插件生命周期状态(面向最终用户,内部推导):
+ * - not-installed   未安装
+ * - installed       已安装未启用
+ * - enabled-restart 已启用,重启 DSH 后生效
+ * - enabled-active  已启用且已生效(当前运行中)
+ * - disabled-restart 已停用,重启 DSH 后完全停用
+ * - incompatible    与 DSH 自带组件冲突,不建议启用
+ * - install-failed  安装未完成(上次操作失败)
+ */
+export type MarketPluginStatus = 'not-installed' | 'installed' | 'enabled-restart' | 'enabled-active' | 'disabled-restart' | 'incompatible' | 'install-failed';
+/** 单个插件的生命周期详情。 */
+export interface MarketPluginLifecycle {
+    readonly status: MarketPluginStatus;
+    /** 是否需要重启 DSH 才会生效。 */
+    readonly restartRequired: boolean;
+    /** 冲突/失败原因(用户语言,无内部术语)。 */
+    readonly reason?: string;
+    /** 依赖名(已安装时)。 */
+    readonly installedName?: string;
+    /** 上次安装失败的错误摘要。 */
+    readonly lastError?: string;
+}
+/** 生命周期查询结果(status/lifecycle 端点)。 */
+export interface MarketLifecycleResult {
+    readonly ok: true;
+    readonly profile: string;
+    /** full_name → 生命周期详情。 */
+    readonly items: Readonly<Record<string, MarketPluginLifecycle>>;
+}
+/** 启用/禁用结果。 */
+export interface MarketToggleResult {
+    readonly ok: boolean;
+    readonly fullName: string;
+    readonly status: MarketPluginStatus;
+    readonly detail: string;
+    /** 是否需要重启 DSH 生效。 */
+    readonly restartRequired: boolean;
+    /** 修改前 profile 备份文件路径(可回滚)。 */
+    readonly backupPath?: string;
 }

@@ -47,6 +47,10 @@ export function apply(ctx: ClientContext): void {
     browse: (category, limit = 50) => fetchJson('/api/plugin-market/browse', { category, limit }),
     install: (repo) => fetchJson('/api/plugin-market/install', { repo }),
     uninstall: (repo) => fetchJson('/api/plugin-market/uninstall', { repo }),
+    enable: (repo) => fetchJson('/api/plugin-market/enable', { repo }),
+    disable: (repo) => fetchJson('/api/plugin-market/disable', { repo }),
+    status: (repo) => fetchJson('/api/plugin-market/status', { repo }),
+    lifecycle: () => fetchJson('/api/plugin-market/lifecycle'),
     assess: (repo) => fetchJson('/api/plugin-market/assess', { repo }),
     installed: () => fetchJson('/api/plugin-market/installed'),
   })

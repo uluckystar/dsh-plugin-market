@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-market",
-  "description": "插件市场：在 DSH 设置页直接浏览 mydsh.dev 插件大全（2990+ 插件），支持本地/AI 搜索、安全评估、一键安装（pnpm add 到当前 profile），刷新即生效。非官方社区 mydsh.dev 出品",
+  "description": "插件市场：在 DSH 设置页浏览 mydsh.dev 插件大全，支持分类、本地/AI 搜索、安全评估、安装、启用、停用、卸载和生命周期状态。非官方社区 mydsh.dev 出品",
   "version": "0.1.0",
   "type": "module",
   "main": "lib/index.js",
