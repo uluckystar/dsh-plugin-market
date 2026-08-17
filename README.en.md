@@ -1,10 +1,10 @@
 # dsh-plugin-market
 
-Browse the **mydsh.dev plugin catalog** right inside the DeepSeek Harness settings page (5,596 candidates, **4,876 verified as directly loadable**) — category browsing, local/AI search, install, enable, disable, uninstall, security assessment, and **one-click auto-restart**. Only plugins verified as directly loadable are shown. Built by the unofficial community mydsh.dev.
+Browse the **mydsh.dev plugin catalog** right inside the DeepSeek Harness settings page (5,596 candidates, **3,656 verified as directly loadable**) — category browsing, local/AI search, install, enable, disable, uninstall, security assessment, and **one-click auto-restart**. Only plugins verified as directly loadable are shown. Built by the unofficial community mydsh.dev.
 
 ![version](https://img.shields.io/badge/version-0.1.0-e63946?style=flat-square)
 ![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![plugins](https://img.shields.io/badge/catalog-4876%20valid-blue?style=flat-square)
+![plugins](https://img.shields.io/badge/catalog-3656%20valid-blue?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-web-lightgrey?style=flat-square)
 
 ## Features
@@ -72,7 +72,7 @@ Restart DSH after installing, then open **Settings → Plugins → Plugin Market
 
 ## Data source
 
-[MyDSH · DeepSeek Harness Plugin Catalog](https://mydsh.dev/plugins) — automatically syncs DSH plugin candidates (currently 5,596) and strictly validates them via the `dsh.bundle.patch` declaration in package.json (currently 4,876 valid / 720 invalid hidden). Only strictly confirmed repos are shown; unknown, unparseable, client-only, and incomplete packages never appear. Unofficial community.
+[MyDSH · DeepSeek Harness Plugin Catalog](https://mydsh.dev/plugins) — automatically syncs DSH plugin candidates (currently 5,596) and strictly validates them via the `dsh.bundle.patch` declaration in package.json (currently 3,656 valid / 1,940 invalid hidden). Only strictly confirmed repos are shown; unknown, unparseable, client-only, and incomplete packages never appear. Unofficial community.
 
 ## Development
 
