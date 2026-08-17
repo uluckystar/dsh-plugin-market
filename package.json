@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-market",
-  "description": "插件市场：在 DSH 设置页浏览 mydsh.dev 插件大全，支持分类、本地/AI 搜索、安全评估、安装、启用、停用、卸载和生命周期状态；只展示可直接启用的 DSH 插件。非官方社区 mydsh.dev 出品",
+  "description": "插件市场：在 DSH 设置页浏览 mydsh.dev 插件大全（5596 候选/4876 有效），分类/AI 搜索、安装、启用、停用、卸载、安全评估与一键自动重启。非官方社区 mydsh.dev 出品",
   "version": "0.1.0",
   "type": "module",
   "main": "lib/index.js",
@@ -50,5 +50,21 @@
   },
   "dependencies": {
     "undici": "^7.29.0"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "plugin-market",
+    "plugin",
+    "marketplace",
+    "mydsh",
+    "agent",
+    "mcp"
+  ],
+  "author": "Jason Jiang <uluckystar> (https://github.com/uluckystar)",
+  "homepage": "https://mydsh.dev/plugins",
+  "bugs": {
+    "url": "https://github.com/uluckystar/dsh-plugin-market/issues"
   }
 }
