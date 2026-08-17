@@ -1,11 +1,24 @@
 # dsh-plugin-market · 插件市场
 
-在 DeepSeek Harness 设置页直接浏览 **mydsh.dev 插件大全**(catalog 5596 个,已核验可直接启用 **4876** 个)——分类浏览、本地/AI 搜索、安装、启用、停用、卸载、安全评估与**一键自动重启生效**。只展示已核验为可直接启用的 DSH 插件。非官方社区 mydsh.dev 出品。
+在 DeepSeek Harness 设置页直接浏览 **mydsh.dev 插件大全**(catalog 5596 个,已核验可直接启用 **3656** 个)——分类浏览、本地/AI 搜索、安装、启用、停用、卸载、安全评估与**一键自动重启生效**。只展示已核验为可直接启用的 DSH 插件。非官方社区 mydsh.dev 出品。
 
 ![version](https://img.shields.io/badge/version-0.1.0-e63946?style=flat-square)
 ![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![plugins](https://img.shields.io/badge/catalog-4876%20valid-blue?style=flat-square)
+![plugins](https://img.shields.io/badge/catalog-3656%20valid-blue?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-web-lightgrey?style=flat-square)
+
+<p align="center">
+  <img src="docs/assets/dsh-plugin-market-install-flow.gif" alt="dsh-plugin-market 安装流程" width="780">
+</p>
+
+## 预览
+
+| 分类浏览 | 本地 / AI 搜索 | 已安装状态 |
+|---|---|---|
+| ![分类浏览](docs/assets/market-browse.png) | ![本地和 AI 搜索](docs/assets/market-search-ai.png) | ![已安装状态](docs/assets/market-installed.png) |
+
+详细教程见：[docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md)。
+软推广素材见：[docs/PROMOTION.zh-CN.md](docs/PROMOTION.zh-CN.md)。
 
 ## 功能
 
@@ -72,7 +85,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-market
 
 ## 数据源
 
-[MyDSH · DeepSeek Harness 插件大全](https://mydsh.dev/plugins) —— 自动同步 DSH 插件候选（当前 5596 个），并通过 package.json 中的 `dsh.bundle.patch` 声明严格校验是否可直接启用（当前 4876 个有效 / 720 个无效已隐藏）；插件市场只展示已严格确认的仓库。未知、不可解析、纯界面包和不完整包都不会展示。非官方社区。
+[MyDSH · DeepSeek Harness 插件大全](https://mydsh.dev/plugins) —— 自动同步 DSH 插件候选（当前 5596 个），并通过 package.json 中的 `dsh.bundle.patch` 声明严格校验是否可直接启用（当前 3656 个有效 / 1940 个无效已隐藏）；插件市场只展示已严格确认的仓库。未知、不可解析、纯界面包和不完整包都不会展示。非官方社区。
 
 ## 开发
 
