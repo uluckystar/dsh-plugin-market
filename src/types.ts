@@ -163,7 +163,7 @@ export interface MarketPluginLifecycle {
   readonly lastError?: string
 }
 
-/** 进程监督者类型(决定能否自动重启):pm2=docker=systemd 可自动,manual=需手动。 */
+/** 进程运行环境(影响自动重启的实现方式,不影响是否可用):pm2 由监督者拉起,其余由插件自拉起 wrapper 重启。 */
 export type MarketRestartCapability = 'pm2' | 'docker' | 'systemd' | 'manual'
 
 /** 生命周期查询结果(status/lifecycle 端点)。 */
@@ -172,9 +172,9 @@ export interface MarketLifecycleResult {
   readonly profile: string
   /** full_name → 生命周期详情。 */
   readonly items: Readonly<Record<string, MarketPluginLifecycle>>
-  /** 当前进程的监督者(决定市场能否提供「自动重启生效」)。 */
+  /** 当前进程的运行环境(决定自动重启的实现方式与提示文案)。 */
   readonly restartCapability: MarketRestartCapability
-  /** 是否可自动重启(capability !== 'manual')。 */
+  /** 是否可自动重启(自拉起 wrapper 可用时恒为 true;pm2 恒 true)。 */
   readonly canAutoRestart: boolean
 }
 

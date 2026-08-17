@@ -428,19 +428,15 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
 
       {notice !== '' ? <p className={css.notice}>{notice}</p> : null}
 
-      {/* 重启生效入口:启用/停用后需要重启时出现;可自动重启 → 按钮,否则 → 指引文案 */}
+      {/* 重启生效入口:启用/停用后需要重启时出现。所有运行环境都可自动重启(pm2 监督者拉起,其余插件自拉起)。 */}
       {restartPendingFor !== null && !restarting ? (
         <div className={css.restartRow}>
           <span className={css.restartHint}>
-            {lifecycleState?.canAutoRestart === false
-              ? t('restartCap_manual')
-              : t(`restartCap_${lifecycleState?.restartCapability ?? 'pm2'}`)}
+            {t(`restartCap_${lifecycleState?.restartCapability ?? 'manual'}`)}
           </span>
-          {lifecycleState?.canAutoRestart !== false ? (
-            <button type="button" className={css.btnRestart} onClick={() => void handleRestartNow()}>
-              {t('restartNow')}
-            </button>
-          ) : null}
+          <button type="button" className={css.btnRestart} onClick={() => void handleRestartNow()}>
+            {t('restartNow')}
+          </button>
         </div>
       ) : null}
       {restarting ? (

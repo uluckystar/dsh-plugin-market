@@ -119,10 +119,12 @@ export declare class PluginMarketGateway extends Service {
     private lifecycleFor;
     /** 全量生命周期(供列表/已安装页)。 */
     lifecycle(): Promise<MarketLifecycleResult>;
-    /** 检测当前进程由谁托管,决定能否安全地「自动重启」:退出后必须有人拉起,否则进程自杀=服务永久下线。 */
+    /** 检测当前进程的运行环境:pm2 走监督者拉起,其余走自拉起 wrapper。 */
     private restartCapability;
-    /** 自动重启:响应先返回,再触发当前进程退出,由监督者(PM2/Docker/systemd)自动拉起新进程加载新配置。 */
+    /** 自动重启:响应先返回,再触发当前进程退出。PM2 托管 → 直接退出由其拉起;其他环境(手动/Docker/systemd/Windows)→ spawn 自拉起 wrapper,由 wrapper 用相同命令重启,不依赖任何外部监督者。 */
     restart(): Promise<MarketRestartResult>;
+    /** 以脱离方式 spawn 自拉起 wrapper;返回是否成功发起。 */
+    private spawnRestartWrapper;
     /** 单个插件状态(已安装页用)。 */
     status(fullName: string): Promise<MarketPluginLifecycle>;
     /** 启用:加入启用列表(保留依赖关系不动)。冲突或核心组件拒绝,写前备份写后校验。 */
