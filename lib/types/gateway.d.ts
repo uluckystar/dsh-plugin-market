@@ -31,6 +31,8 @@ export declare class PluginMarketGateway extends Service {
     /** Loader 校验的部署配置。 */
     static Config: s<PluginMarketConfig>;
     private readonly config;
+    /** GitHub/外部请求代理：Node fetch 默认不读取 HTTP_PROXY，这里显式接入。 */
+    private readonly fetchDispatcher?;
     /** 插件大全内存缓存（6 小时失效，增量更新：网站每小时刷新，这里每 6 小时同步一次）。 */
     private catalogCache;
     /** 磁盘缓存路径（重启不丢，避免每次启动重新拉 2MB）。 */
@@ -43,19 +45,23 @@ export declare class PluginMarketGateway extends Service {
     constructor(ctx: Context, config: PluginMarketConfig);
     /** 插件大全：内存缓存 → 磁盘缓存 → 网络拉取（TTL 内零网络请求）。 */
     catalog(): Promise<MarketPlugin[]>;
-    /** 校验结果缓存（磁盘）：{full_name: 'valid' | 'invalid' | 'skipped'}。skipped=连续限流后暂不校验（保持可见）。 */
+    /** 校验结果缓存（磁盘）：只信任 bundle-patch-v1 新缓存；旧 topic 快速通道缓存不再读取。 */
     private validatedCache;
     /** 校验是否已在跑。 */
     private validating;
     /** 校验磁盘路径。 */
     private readonly validatedDiskPath;
+    /** fetch options：Node fetch 不会自动读取 HTTP_PROXY，外部请求必须显式 dispatcher。 */
+    private fetchOptions;
+    /** 拉取仓库 package.json：优先 API(token 可用时)，否则走 raw/HEAD，避免未认证 API 60/h 限流。 */
+    private fetchPackageManifest;
     /** 加载已缓存的有效性结果。 */
     private loadValidated;
     /** 保存有效性结果到磁盘。 */
     private saveValidated;
-    /** 后台批量校验：拉每个仓库的 package.json，检查 dsh.bundle/client 声明。 */
+    /** 后台批量校验：拉每个仓库 package.json，只接受 dsh.bundle.patch。 */
     private startValidation;
-    /** 过滤：invalid 的不显示（每次从磁盘刷新，独立校验脚本更新后无需重启即生效）。 */
+    /** 过滤：只显示已严格确认含 dsh.bundle.patch 的插件；未知/跳过/无效都不展示。 */
     private filterValid;
     /** 分类浏览：按分类列出插件（星数降序；limit=0 返回全部），附各分类计数。 */
     browse(category: string, limit?: number): Promise<MarketBrowseResult>;

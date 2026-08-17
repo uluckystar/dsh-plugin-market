@@ -1,8 +1,8 @@
 # dsh-plugin-market 生产就绪报告
 
-> 生成时间:2026-08-17(队长自动汇总,成员:架构师/产品/开发/用户代表)
-> 目标:插件市场达到可上线状态(公开仓库与发帖由用户自行执行)
-> 验证环境:隔离 `market-test` profile + 3081 实例(未触碰真实 web profile 与 3080 进程)
+> 生成时间:2026-08-17 13:15 +0800(生产收口复核)
+> 目标:插件市场达到可发布状态(代码、公开仓库、Topic、官方 Discussion 与真实 DSH 验收闭环)
+> 验证环境:隔离 `market-test` profile + 主 web profile(3080)复核
 
 ## 一、验证矩阵(实测证据)
 
@@ -31,6 +31,7 @@
 | 内部术语扫描 | 市场三视图+locales+gateway 用户文案:dependencies/bundle/pnpm 零出现 | ✅ |
 | AI 搜索星数(L8) | 实测 Olalaye/dsh-layered-memory 等 ★0 与 GitHub live API 一致(数据真实,非缺陷) | ✅ |
 | AI 搜索链路 | mydsh.dev /api/ai-search SSE 解析 3 条推荐,name 提取正确 | ✅ |
+| 严格展示校验 | 5596 个候选经 raw/HEAD package.json 全量校验;3656 valid / 1940 invalid / 0 skipped;只展示 valid | ✅ |
 
 ## 二、生产化修复清单(队长汇总四成员产出)
 
@@ -55,7 +56,7 @@
 - L19 超时:install 前 GitHub 校验与 assess fetch 加 10s AbortController。
 - L20 readJson 64KB 上限 + readBody 包装(8 个带 body 路由),guarded 加 catch 兜底。
 - L22 构造日志脱敏:proxyUrl user:pass → `***:***`,token 只打「已配置/未配置」。
-- L18 startValidation 403 重试上限:连续 30 次标记 skipped 并结束本轮。
+- L18 startValidation 403 重试上限:已升级为 raw/HEAD + 显式代理 + 并发严格校验,不再依赖未认证 GitHub API 60/h 配额;skipped/unknown 不展示。
 - L21 已验证无需改(writeProfileSafe 本就展开保留其他键)。
 
 ### UX 体验修复(用户代表 t4 → 队长,3081 复验)
@@ -83,12 +84,13 @@
 6. 安装失败态 UI 实测盲区(隔离实例无现成失败项)——代码路径完整,上线后造失败补测。
 7. 死代码:/api/plugin-market/catalog 路由客户端未调用;types.ts needs_review 未使用——无害,下个迭代清理。
 
-## 五、上线动作(用户执行)
+## 五、发布与上线复核
 
-1. `git push` 公开仓库(uluckystar/dsh-plugin-market;工作区已本地 commit,未 push)。
-2. 发布帖文(post-production.md,Show and tell;标题以文件为准)。
-3. 重启主 web(3080)→ 新构建生效(CSRF/串行写/确认弹窗等全部生产修复上线),按 t2 清单复验。
-4. 验证脚本 PM2 定时(dsh-plugin-validate,每日 04:00)继续跑;目录校验数据 ~5596 候选/4876 有效。
+1. 公开仓库:推送到 `https://github.com/uluckystar/dsh-plugin-market.git`。
+2. GitHub Topics:`deepseek-harness` / `deepseek-harness-plugin` / `dsh-plugin` / `plugin-market` / `mydsh`。
+3. 官方 Discussion:已在 deepseek-ai/deepseek-harness Discussions #1758 发布插件市场生产化更新。
+4. 主 web(3080):已重启并返回 200;插件市场 browse/status/install-block API 已复核。
+5. 验证脚本输出 `plugin_market_validated_bundle_v1.json`;当前目录校验数据 5596 候选 / 3656 有效 / 1940 无效 / 0 跳过。
 
 ## 六、隔离环境清理
 

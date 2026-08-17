@@ -18,6 +18,7 @@
 ## 性能
 
 - 插件大全**磁盘持久化缓存**（`$DSH_HOME/storages/plugin_market_catalog.json`，6 小时 TTL）：重启不丢、不重复拉取 2MB 数据
+- 严格校验缓存（`$DSH_HOME/storages/plugin_market_validated_bundle_v1.json`）：只把含 `dsh.bundle.patch` 的仓库标为可展示
 - 分类切换**纯本地过滤**，零网络请求
 - AI 搜索 6 秒超时保护，慢不阻塞本地结果
 
@@ -45,6 +46,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-market
     proxyUrl: 'http://127.0.0.1:7897'        # 本机代理（加速 GitHub 下载），可置空
     catalogCacheMs: 21600000                 # 插件大全缓存 TTL（6 小时）
     installTimeoutMs: 300000                 # 安装超时
+    githubToken: ''                          # 可选：GitHub API token；无 token 时使用 raw/HEAD + 代理校验
 ```
 
 ## API
@@ -64,7 +66,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-market
 
 ## 数据源
 
-[MyDSH · DeepSeek Harness 插件大全](https://mydsh.dev/plugins) —— 自动同步 DSH 插件候选，并通过 package.json 中的 `dsh.bundle.patch` 声明校验是否可直接启用；本地校验缓存会过滤不能直接启用的仓库。非官方社区。
+[MyDSH · DeepSeek Harness 插件大全](https://mydsh.dev/plugins) —— 自动同步 DSH 插件候选，并通过 package.json 中的 `dsh.bundle.patch` 声明严格校验是否可直接启用；插件市场只展示已严格确认的仓库，未知、不可解析、纯界面包和不完整包都不会展示。非官方社区。
 
 ## License
 
@@ -83,4 +85,4 @@ MIT
 - **已生效判定**:启用后,当前运行中的 DSH 已加载该插件 → 「已启用」;否则 → 「已启用·重启后生效」。
 - **安装失败记录**:失败原因持久保存,界面显示「重试安装」。
 - 验证:`node scripts/lifecycle-smoke.mjs`(临时 profile,18 项断言,不碰真实配置)。
-- 严格重查旧缓存:`PLUGIN_MARKET_RECHECK_VALID=1 node scripts/validate-plugins.mjs`。
+- 严格重建展示缓存:`HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 node scripts/validate-plugins.mjs`。
