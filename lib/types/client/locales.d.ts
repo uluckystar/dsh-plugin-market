@@ -50,6 +50,10 @@ export declare const zh: {
     failedHint: string;
     restartHint: string;
     uninstalledHint: string;
+    confirmInstall: string;
+    confirmEnable: string;
+    confirmDisable: string;
+    confirmUninstall: string;
     assess: string;
     assessing: string;
     assessReported: string;
@@ -114,6 +118,10 @@ export declare const en: {
     failedHint: string;
     restartHint: string;
     uninstalledHint: string;
+    confirmInstall: string;
+    confirmEnable: string;
+    confirmDisable: string;
+    confirmUninstall: string;
     assess: string;
     assessing: string;
     assessReported: string;

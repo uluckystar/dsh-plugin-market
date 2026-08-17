@@ -26,6 +26,13 @@ export interface MarketPlugin {
     /** 是否已安装到当前 profile。 */
     readonly installed?: boolean;
 }
+/**
+ * 插件分类：按 topics 匹配第一个命中的分类，未命中归 other。
+ * host（gateway）与 client（MarketTab）共用，保证分类规则单一来源。
+ */
+export declare function categoryOf(p: {
+    readonly topics?: readonly string[];
+}): MarketCategoryId;
 /** 分类浏览结果。 */
 export interface MarketBrowseResult {
     readonly ok: true;

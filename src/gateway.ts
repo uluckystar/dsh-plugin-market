@@ -19,13 +19,25 @@ import {
   patchConflictIds, patchEntryIds, readProfile, removeBundle,
 } from './profile-ops.ts'
 import {
-  MARKET_CATEGORIES,
+  MARKET_CATEGORIES, categoryOf,
   type MarketAssessResult, type MarketBrowseResult, type MarketInstallResult,
   type MarketInstalledResult, type MarketLifecycleResult, type MarketPlugin, type MarketPluginLifecycle,
   type MarketPluginStatus, type MarketSearchResult, type MarketToggleResult, type MarketUninstallResult,
 } from './types.ts'
 
 const execAsync = promisify(execCallback)
+
+/** 脱敏代理地址：不打印 user:pass 凭据（保留协议/主机/端口）。 */
+function maskProxyUrl(url: string): string {
+  if (url === '') return ''
+  try {
+    const u = new URL(url)
+    const auth = u.username !== '' || u.password !== '' ? '***:***@' : ''
+    return `${u.protocol}//${auth}${u.host}${u.pathname}${u.search}`
+  } catch {
+    return url.replace(/\/\/[^@/]+@/, '//***:***@')
+  }
+}
 
 
 function friendlyOperationError(error: unknown, action: 'install' | 'uninstall' | 'enable' | 'disable'): string {
@@ -110,7 +122,7 @@ export class PluginMarketGateway extends Service {
 
   constructor(ctx: Context, config: PluginMarketConfig) {
     super(ctx, 'pluginMarket')
-    console.log(`[plugin-market] 构造 config: catalogCacheMs=${config?.catalogCacheMs}, marketBaseUrl=${config?.marketBaseUrl}, profileName=${config?.profileName}, pnpmCommand=${config?.pnpmCommand}, proxyUrl=${config?.proxyUrl}`)
+    console.log(`[plugin-market] 构造 config: catalogCacheMs=${config?.catalogCacheMs}, marketBaseUrl=${config?.marketBaseUrl}, profileName=${config?.profileName}, pnpmCommand=${config?.pnpmCommand}, proxyUrl=${maskProxyUrl(config?.proxyUrl ?? '')}`)
     // config 兜底默认值：cordis patch 未合并时也能正常工作
     this.config = {
       marketBaseUrl: config?.marketBaseUrl ?? 'https://mydsh.dev',
@@ -194,8 +206,8 @@ export class PluginMarketGateway extends Service {
 
   // ===== 插件有效性校验（防非 DSH 插件混入列表）=====
 
-  /** 校验结果缓存（磁盘）：{full_name: 'valid' | 'invalid'}。 */
-  private validatedCache: Record<string, 'valid' | 'invalid'> = {}
+  /** 校验结果缓存（磁盘）：{full_name: 'valid' | 'invalid' | 'skipped'}。skipped=连续限流后暂不校验（保持可见）。 */
+  private validatedCache: Record<string, 'valid' | 'invalid' | 'skipped'> = {}
   /** 校验是否已在跑。 */
   private validating = false
   /** 校验磁盘路径。 */
@@ -234,6 +246,9 @@ export class PluginMarketGateway extends Service {
       if (hasToken) headers.authorization = `Bearer ${this.config.githubToken}`
 
       // 串行校验（contents API 有独立次级限流，串行 + 延时最稳）；限流时等待后重试
+      // 连续限流保护：连续 30 次 403 说明配额已耗尽，标记剩余跳过并结束本轮，避免无限循环卡 validating。
+      const RATE_LIMIT_SKIP_AT = 30
+      let consecutiveRateLimit = 0
       for (let i = 0; i < todo.length; i++) {
         const p = todo[i]!
         try {
@@ -242,11 +257,19 @@ export class PluginMarketGateway extends Service {
           const resp = await fetch(`https://api.github.com/repos/${p.full_name}/contents/package.json`, { headers, signal: controller.signal })
           clearTimeout(timer)
           if (resp.status === 403) {
-            console.log(`[plugin-market] 校验限流，等待 30s 后重试（${p.full_name}）`)
+            consecutiveRateLimit++
+            if (consecutiveRateLimit >= RATE_LIMIT_SKIP_AT) {
+              console.log(`[plugin-market] 校验连续 ${consecutiveRateLimit} 次被限流（配额可能已耗尽），跳过剩余 ${todo.length - i} 个插件，本轮结束`)
+              for (let j = i; j < todo.length; j++) this.validatedCache[todo[j]!.full_name] = 'skipped'
+              this.saveValidated()
+              break
+            }
+            console.log(`[plugin-market] 校验限流（连续第 ${consecutiveRateLimit} 次），等待 30s 后重试（${p.full_name}）`)
             await new Promise(r => setTimeout(r, 30000))
             i-- // 重试当前
             continue
           }
+          consecutiveRateLimit = 0
           if (resp.status === 404) {
             this.validatedCache[p.full_name] = 'invalid' // 无 package.json
           } else if (!resp.ok) {
@@ -262,7 +285,10 @@ export class PluginMarketGateway extends Service {
               this.validatedCache[p.full_name] = 'invalid'
             }
           }
-        } catch { this.validatedCache[p.full_name] = 'invalid' }
+        } catch {
+          consecutiveRateLimit = 0
+          this.validatedCache[p.full_name] = 'invalid'
+        }
         // 每 2 个存一次盘（进度可恢复）
         if (i % 2 === 0) this.saveValidated()
         // 延时（contents API 限流友好）
@@ -289,16 +315,6 @@ export class PluginMarketGateway extends Service {
     return plugins.filter(p => this.validatedCache[p.full_name] !== 'invalid')
   }
 
-  /** 插件分类：按 topics 匹配第一个命中的分类，未命中归 other。 */
-  private categoryOf(p: MarketPlugin): string {
-    const topics = new Set((p.topics ?? []).map(t => t.toLowerCase()))
-    for (const cat of MARKET_CATEGORIES) {
-      if (cat.id === 'other') continue
-      if (cat.topics.some(t => topics.has(t))) return cat.id
-    }
-    return 'other'
-  }
-
   /** 分类浏览：按分类列出插件（星数降序；limit=0 返回全部），附各分类计数。 */
   async browse(category: string, limit = 50): Promise<MarketBrowseResult> {
     const cat = (category ?? '').trim() as MarketBrowseResult['category']
@@ -312,13 +328,13 @@ export class PluginMarketGateway extends Service {
     const counts: Record<string, number> = { all: all.length }
     for (const c of MARKET_CATEGORIES) counts[c.id] = 0
     for (const p of all) {
-      const c = this.categoryOf(p)
+      const c = categoryOf(p)
       counts[c] = (counts[c] ?? 0) + 1
     }
 
     const list = target === 'all'
       ? all
-      : all.filter(p => this.categoryOf(p) === target)
+      : all.filter(p => categoryOf(p) === target)
     const sorted = [...list].sort((a, b) => (b.stargazers_count ?? 0) - (a.stargazers_count ?? 0))
     const plugins = (limit > 0 ? sorted.slice(0, limit) : sorted)
       .map(p => ({ ...p, installed: installed.has(p.full_name) }))
@@ -394,7 +410,7 @@ export class PluginMarketGateway extends Service {
   async install(fullName: string): Promise<MarketInstallResult> {
     const started = Date.now()
     const name = (fullName ?? '').trim()
-    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(name)) {
+    if (this.validPackageName(name) === null) {
       return { ok: false, fullName: name, detail: '仓库名格式应为 owner/repo', restartRequired: false, durationMs: 0 }
     }
     const dir = this.profileDir()
@@ -404,9 +420,13 @@ export class PluginMarketGateway extends Service {
 
     // ---- 有效性校验：必须是真正的 DSH 插件（防装上一堆「带 topic 但不是插件」的仓库）----
     try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 10000)
       const pkgResp = await fetch(`https://api.github.com/repos/${name}/contents/package.json`, {
         headers: this.config.githubToken !== '' ? { 'user-agent': 'dsh-plugin-market/0.1 (+https://mydsh.dev)', authorization: `Bearer ${this.config.githubToken}` } : { 'user-agent': 'dsh-plugin-market/0.1 (+https://mydsh.dev)' },
+        signal: controller.signal,
       })
+      clearTimeout(timer)
       if (pkgResp.status === 404) {
         return { ok: false, fullName: name, detail: '该仓库缺少可安装信息，暂不能作为 DSH 插件安装。', restartRequired: false, durationMs: 0 }
       }
@@ -422,7 +442,7 @@ export class PluginMarketGateway extends Service {
         this.saveValidated()
         return {
           ok: false, fullName: name,
-          detail: '该项目不是可直接启用的 DSH 插件，已取消安装。',
+          detail: '该项目是界面增强类插件，当前市场版本仅支持可直接启用的插件，已取消安装。',
           restartRequired: false, durationMs: 0,
         }
       }
@@ -457,6 +477,9 @@ export class PluginMarketGateway extends Service {
     if (name.length === 0) {
       return { ok: false, fullName: name, detail: '缺少插件名', restartRequired: false, durationMs: 0 }
     }
+    if (this.validPackageName(name) === null) {
+      return { ok: false, fullName: name, detail: '插件名不合法', restartRequired: false, durationMs: 0 }
+    }
     const dir = this.profileDir()
     if (!dir) {
       return { ok: false, fullName: name, detail: '找不到当前插件配置，请检查 DSH 是否正常启动。', restartRequired: false, durationMs: 0 }
@@ -469,14 +492,20 @@ export class PluginMarketGateway extends Service {
         const found = Object.entries(installed.sources).find(([, src]) => src === name)
         if (found) depName = found[0]
       }
-      await this.runPnpm(dir, ['remove', depName])
-      // 卸载 = 移除依赖 + 移出启用列表(备份写后校验)
-      try {
-        const { backup } = removeBundle(dir, depName)
-        return { ok: true, fullName: name, detail: '卸载完成。重启 DSH 后移除。', restartRequired: true, durationMs: Date.now() - started, backupPath: backup }
-      } catch {
+      const outcome = await this.enqueueProfileMutation(async () => {
+        const removed = await this.runPnpm(dir, ['remove', depName])
+        try {
+          const { backup } = removeBundle(dir, depName)
+          return { removed, backupPath: backup }
+        } catch {
+          return { removed, backupPath: undefined, bundleError: true }
+        }
+      })
+      this.clearInstallFailure(name)
+      if (outcome.bundleError === true) {
         return { ok: true, fullName: name, detail: '已卸载，但状态刷新不完整。请重启 DSH 后检查。', restartRequired: true, durationMs: Date.now() - started }
       }
+      return { ok: true, fullName: name, detail: '卸载完成。重启 DSH 后移除。', restartRequired: true, durationMs: Date.now() - started, backupPath: outcome.backupPath }
     } catch (error) {
       console.log(`[plugin-market] 卸载失败 ${name}: ${error instanceof Error ? error.message : String(error)}`)
       return { ok: false, fullName: name, detail: friendlyOperationError(error, 'uninstall'), restartRequired: false, durationMs: Date.now() - started }
@@ -505,9 +534,13 @@ export class PluginMarketGateway extends Service {
       return { ok: false, fullName: name, status: 'error', detail: '仓库名格式应为 owner/repo' }
     }
     try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 10000)
       const resp = await fetch(`${this.config.marketBaseUrl}/api/security/list`, {
         headers: { 'user-agent': 'dsh-plugin-market/0.1' },
+        signal: controller.signal,
       })
+      clearTimeout(timer)
       const data = await resp.json() as { reports?: Array<{ full_name: string; risk_score: number; reviewed_at?: string }> }
       const existing = (data.reports ?? []).find(r => r.full_name === name)
       if (existing) {
@@ -594,6 +627,24 @@ export class PluginMarketGateway extends Service {
     if (this.lifecycleFailures[fullName] === undefined) return
     delete this.lifecycleFailures[fullName]
     try { writeFileSync(this.lifecycleDiskPath, JSON.stringify(this.lifecycleFailures, null, 2), 'utf8') } catch { /* ignore */ }
+  }
+
+  /** 包名合法字符(防 shell 注入;enable/disable/uninstall 的输入必经此校验)。 */
+  private static readonly PACKAGE_NAME_RE = /^[A-Za-z0-9@/._-]+$/
+
+  /** 校验输入为合法包名/仓库名,不合法返回 null。 */
+  private validPackageName(name: string): string | null {
+    return PluginMarketGateway.PACKAGE_NAME_RE.test(name) ? name : null
+  }
+
+  /** profile 写操作串行链:install/enable/disable/uninstall 排队执行,杜绝并发写 package.json。 */
+  private profileMutations: Promise<unknown> = Promise.resolve()
+
+  /** 排队一个会写 profile 的操作(与 pnpm 子进程写互斥)。 */
+  private enqueueProfileMutation<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.profileMutations.then(op, op)
+    this.profileMutations = run.then(() => undefined, () => undefined)
+    return run
   }
 
   /** 依赖名 → 已安装插件目录(node_modules 下,可能为 link 包)。 */
@@ -739,6 +790,9 @@ export class PluginMarketGateway extends Service {
   /** 启用:加入启用列表(保留依赖关系不动)。冲突或核心组件拒绝,写前备份写后校验。 */
   async enable(fullName: string): Promise<MarketToggleResult> {
     const name = (fullName ?? '').trim()
+    if (this.validPackageName(name) === null) {
+      return { ok: false, fullName: name, status: 'not-installed', detail: '插件名不合法', restartRequired: false }
+    }
     const input = await this.lifecycleInput()
     const depName = input.depByRepo.get(name) ?? (input.repos.has(name) ? name : undefined)
     if (depName === undefined) {
@@ -786,6 +840,9 @@ export class PluginMarketGateway extends Service {
   /** 禁用:移出启用列表,保留依赖关系(可随时重新启用)。 */
   async disable(fullName: string): Promise<MarketToggleResult> {
     const name = (fullName ?? '').trim()
+    if (this.validPackageName(name) === null) {
+      return { ok: false, fullName: name, status: 'not-installed', detail: '插件名不合法', restartRequired: false }
+    }
     const input = await this.lifecycleInput()
     const depName = input.depByRepo.get(name) ?? (input.repos.has(name) ? name : undefined)
     if (depName === undefined) {
@@ -814,65 +871,141 @@ export function makeRoutes(gateway: PluginMarketGateway): import('@deepseek-ai/d
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify(body))
   }
-  const readJson = async (req: { on(event: 'data', cb: (c: Buffer) => void): unknown; on(event: 'end', cb: () => void): unknown }): Promise<unknown> => {
+  const MAX_JSON_BODY = 64 * 1024
+  type JsonReq = {
+    on(event: 'data', cb: (c: Buffer) => void): unknown
+    on(event: 'end', cb: () => void): unknown
+    on(event: 'error', cb: () => void): unknown
+    destroy(): void
+  }
+  const readJson = async (req: JsonReq): Promise<unknown> => {
     const chunks: Buffer[] = []
+    let total = 0
+    let tooLarge = false
     await new Promise<void>((resolve) => {
-      req.on('data', (c: Buffer) => chunks.push(c))
+      req.on('data', (c: Buffer) => {
+        total += c.length
+        if (total > MAX_JSON_BODY) {
+          tooLarge = true
+          req.destroy()
+          resolve()
+          return
+        }
+        chunks.push(c)
+      })
       req.on('end', () => resolve())
+      req.on('error', () => resolve())
     })
+    if (tooLarge) {
+      const err = new Error('请求体过大') as Error & { code?: string }
+      err.code = 'body-too-large'
+      throw err
+    }
     try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') } catch { return {} }
+  }
+  /** 读请求体：超限（>64KB）回复 400、其他异常回复 500，调用方收到 null 应直接返回。 */
+  const readBody = async (req: JsonReq, res: { writeHead(s: number, h: Record<string, string>): void; end(b: string): void }): Promise<Record<string, unknown> | null> => {
+    try {
+      return (await readJson(req)) as Record<string, unknown>
+    } catch (e) {
+      const code = (e as Error & { code?: string }).code
+      if (code === 'body-too-large') {
+        json(res, 400, { ok: false, code: 'body-too-large', message: '请求体过大' })
+      } else {
+        json(res, 500, { ok: false, code: 'internal', message: '服务暂不可用，请稍后重试。' })
+      }
+      return null
+    }
   }
   const respond = (res: { writeHead(s: number, h: Record<string, string>): void; end(b: string): void }, promise: Promise<unknown>) => {
     promise.then(v => json(res, 200, v)).catch(e => json(res, 500, { ok: false, code: 'internal', message: '服务暂不可用，请稍后重试。' }))
+  }
+
+  /**
+   * 同源校验(CSRF 防线):浏览器跨站请求必带 Origin;若 Origin 存在
+   * 且与请求 Host 不一致则拒绝。无 Origin 的请求(curl/同源旧客户端)放行。
+   * 阻断恶意网页对 127.0.0.1:3080 的 drive-by 安装/卸载。
+   */
+  const sameOrigin = (req: { headers: { origin?: string; host?: string } }): boolean => {
+    const origin = req.headers.origin
+    if (origin === undefined) return true
+    try {
+      const host = req.headers.host
+      if (host === undefined) return false
+      return new URL(origin).host === host
+    } catch {
+      return false
+    }
+  }
+  /** 写操作统一入口:先同源校验再转发。 */
+  const guarded = (
+    handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void | Promise<void>,
+  ): (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void => {
+    return (req, res) => {
+      if (!sameOrigin(req)) {
+        json(res, 403, { ok: false, code: 'cross-origin', message: '请求来源不合法' })
+        return
+      }
+      Promise.resolve(handler(req, res)).catch(e => {
+        if (!res.headersSent) json(res, 500, { ok: false, code: 'internal', message: '服务暂不可用，请稍后重试。' })
+      })
+    }
   }
 
   return [
     {
       kind: 'exact', path: '/api/plugin-market/search',
       handler: async (req, res) => {
-        const body = await readJson(req) as { query?: string; ai?: boolean }
+        const body = await readBody(req, res) as { query?: string; ai?: boolean } | null
+        if (body === null) return
         respond(res, gateway.search(body.query ?? '', body.ai === true))
       },
     },
     {
       kind: 'exact', path: '/api/plugin-market/install',
-      handler: async (req, res) => {
-        const body = await readJson(req) as { repo?: string }
+      handler: guarded(async (req, res) => {
+        const body = await readBody(req, res) as { repo?: string } | null
+        if (body === null) return
         respond(res, gateway.install(body.repo ?? ''))
-      },
+      }),
     },
     {
       kind: 'exact', path: '/api/plugin-market/assess',
-      handler: async (req, res) => {
-        const body = await readJson(req) as { repo?: string }
+      handler: guarded(async (req, res) => {
+        const body = await readBody(req, res) as { repo?: string } | null
+        if (body === null) return
         respond(res, gateway.assess(body.repo ?? ''))
-      },
+      }),
     },
     {
       kind: 'exact', path: '/api/plugin-market/uninstall',
-      handler: async (req, res) => {
-        const body = await readJson(req) as { repo?: string }
+      handler: guarded(async (req, res) => {
+        const body = await readBody(req, res) as { repo?: string } | null
+        if (body === null) return
         respond(res, gateway.uninstall(body.repo ?? ''))
-      },
+      }),
     },
     {
       kind: 'exact', path: '/api/plugin-market/enable',
-      handler: async (req, res) => {
-        const body = await readJson(req) as { repo?: string }
+      handler: guarded(async (req, res) => {
+        const body = await readBody(req, res) as { repo?: string } | null
+        if (body === null) return
         respond(res, gateway.enable(body.repo ?? ''))
-      },
+      }),
     },
     {
       kind: 'exact', path: '/api/plugin-market/disable',
-      handler: async (req, res) => {
-        const body = await readJson(req) as { repo?: string }
+      handler: guarded(async (req, res) => {
+        const body = await readBody(req, res) as { repo?: string } | null
+        if (body === null) return
         respond(res, gateway.disable(body.repo ?? ''))
-      },
+      }),
     },
     {
       kind: 'exact', path: '/api/plugin-market/status',
       handler: async (req, res) => {
-        const body = await readJson(req) as { repo?: string }
+        const body = await readBody(req, res) as { repo?: string } | null
+        if (body === null) return
         respond(res, gateway.status(body.repo ?? ''))
       },
     },
@@ -883,7 +1016,8 @@ export function makeRoutes(gateway: PluginMarketGateway): import('@deepseek-ai/d
     {
       kind: 'exact', path: '/api/plugin-market/browse',
       handler: async (req, res) => {
-        const body = await readJson(req) as { category?: string; limit?: number }
+        const body = await readBody(req, res) as { category?: string; limit?: number } | null
+        if (body === null) return
         respond(res, gateway.browse(body.category ?? 'all', Number.isFinite(body.limit) ? body.limit : 50))
       },
     },

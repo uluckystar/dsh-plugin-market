@@ -1,12 +1,13 @@
 /** 插件市场设置页 tab：分类浏览 / 搜索（本地+AI）/ 已安装管理 + mydsh.dev 引流。 */
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PluginMarketLocaleKey } from './locales.ts'
-import type {
-  MarketAssessResult, MarketBrowseResult, MarketInstallResult,
-  MarketInstalledResult, MarketLifecycleResult, MarketPlugin, MarketPluginLifecycle,
-  MarketPluginStatus, MarketSearchResult, MarketToggleResult, MarketUninstallResult,
+import {
+  MARKET_CATEGORIES, categoryOf,
+  type MarketAssessResult, type MarketBrowseResult, type MarketInstallResult,
+  type MarketInstalledResult, type MarketLifecycleResult, type MarketPlugin, type MarketPluginLifecycle,
+  type MarketPluginStatus, type MarketSearchResult, type MarketToggleResult, type MarketUninstallResult,
 } from '../types.ts'
 import css from './MarketTab.module.css'
 
@@ -30,8 +31,8 @@ export type MarketTabProps =
   & PropsLocale<'settings.pluginMarket'>
   & InjectFace<MarketTabInjected>
 
-/** 分类列表（id → 标签 key）。 */
-const CATEGORY_LABEL_KEYS = ['all', 'agent', 'mcp', 'devtools', 'ui', 'vision', 'llm', 'memory', 'data', 'integrations', 'other'] as const
+/** 分类列表（id → 标签 key；与 types.ts 的 MARKET_CATEGORIES 单一来源）。 */
+const CATEGORY_LABEL_KEYS = ['all', ...MARKET_CATEGORIES.map(c => c.id)] as const
 
 type ViewState =
   | { readonly status: 'idle' }
@@ -169,7 +170,13 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
     return cat === 'all' ? allPlugins : allPlugins.filter(p => categoryOf(p) === cat)
   }
 
+  /** 请求序号守卫：分类快速切换时丢弃过期响应，避免旧分类覆盖新分类。 */
+  const browseSeq = useRef(0)
+  /** 搜索序号守卫：本地/AI 搜索的过期响应不覆盖新结果（AI 搜索可达 6s+）。 */
+  const searchSeq = useRef(0)
+
   const runBrowse = async (cat: string) => {
+    const seq = ++browseSeq.current
     // 已缓存全量：本地过滤，秒切
     if (allPlugins !== null) {
       const list = filteredList(cat)
@@ -181,12 +188,14 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
     try {
       // 一次拉全量（limit=0），本地缓存后按分类过滤
       const result = await browse('all', 0)
+      if (seq !== browseSeq.current) return // 已有更新的分类请求，丢弃过期响应
       setAllPlugins(result.plugins)
       setAllCounts(result.counts)
       setVisibleCount(PAGE)
       const list = cat === 'all' ? result.plugins : result.plugins.filter(p => categoryOf(p) === cat)
       setBrowseState({ status: 'ready', result: { ...result, category: cat as MarketBrowseResult['category'], plugins: list.slice(0, PAGE) } })
     } catch (e) {
+      if (seq !== browseSeq.current) return // 过期请求的失败不覆盖新状态
       setBrowseState({ status: 'error', message: String(e) })
     }
   }
@@ -200,35 +209,18 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
     setBrowseState({ status: 'ready', result: { ...browseState.result, plugins: list.slice(0, next) } })
   }
 
-  /** 前端分类判断（与后端一致）。 */
-  function categoryOf(p: MarketPlugin): string {
-    const topics = new Set((p.topics ?? []).map(t => t.toLowerCase()))
-    const RULES: ReadonlyArray<readonly [string, ...string[]]> = [
-      ['agent', 'agent', 'ai-agent', 'agent-skills', 'multi-agent', 'autonomous', 'team', 'crew', 'orchestration'],
-      ['mcp', 'mcp', 'model-context-protocol', 'mcp-server', 'mcp-client'],
-      ['devtools', 'developer-tools', 'cli', 'command-line', 'terminal', 'vscode', 'neovim', 'ide', 'sdk', 'tooling', 'debugger', 'tui'],
-      ['ui', 'ui', 'gui', 'dashboard', 'desktop', 'electron', 'web-ui', 'frontend', 'interface', 'webapp', 'react'],
-      ['vision', 'vision', 'image', 'video', 'multimodal', 'ocr', 'screenshot', 'computer-vision', 'audio'],
-      ['llm', 'llm', 'language-model', 'prompt', 'chat', 'openai', 'anthropic', 'gemini', 'claude', 'codex', 'reasoning', 'inference'],
-      ['memory', 'memory', 'knowledge', 'rag', 'vector', 'retrieval', 'search', 'notes', 'semantic'],
-      ['data', 'data', 'database', 'storage', 'sql', 'postgres', 'redis', 'sqlite', 'csv', 'excel'],
-      ['integrations', 'integration', 'api', 'webhook', 'github', 'slack', 'discord', 'telegram', 'notion', 'obsidian', 'chrome', 'browser', 'google', 'jira', 'linear', 'gitlab'],
-    ]
-    for (const [id, ...ts] of RULES) {
-      if (ts.some(t => topics.has(t))) return id
-    }
-    return 'other'
-  }
-
   const runSearch = async (q: string, ai: boolean) => {
     const queryText = q.trim()
     if (queryText.length === 0) return
+    const seq = ++searchSeq.current
     setSearchState({ status: 'loading' })
     setNotice('')
     try {
       const result = await search(queryText, ai)
+      if (seq !== searchSeq.current) return // 已有更新的搜索请求，丢弃过期响应
       setSearchState({ status: 'ready', result })
     } catch (e) {
+      if (seq !== searchSeq.current) return
       setSearchState({ status: 'error', message: String(e) })
     }
   }
@@ -277,6 +269,7 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
   }
 
   const handleInstall = async (name: string) => {
+    if (!window.confirm(t('confirmInstall').replace('{name}', name))) return
     setBusyRow(name); setBusyAction('install'); setNotice('')
     try { await afterMutation(...await install(name).then(r => [r.ok, r.detail] as [boolean, string])) }
     catch (e) { setNotice(`⚠️ ${String(e)}`) }
@@ -284,6 +277,7 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
   }
 
   const handleEnable = async (name: string) => {
+    if (!window.confirm(t('confirmEnable').replace('{name}', name))) return
     setBusyRow(name); setBusyAction('enable'); setNotice('')
     try {
       const r = await enable(name)
@@ -293,6 +287,7 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
   }
 
   const handleDisable = async (name: string) => {
+    if (!window.confirm(t('confirmDisable').replace('{name}', name))) return
     setBusyRow(name); setBusyAction('disable'); setNotice('')
     try {
       const r = await disable(name)
@@ -302,6 +297,7 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
   }
 
   const handleUninstall = async (name: string) => {
+    if (!window.confirm(t('confirmUninstall').replace('{name}', name))) return
     setBusyRow(name); setBusyAction('uninstall'); setNotice('')
     try { await afterMutation(...await uninstall(name).then(r => [r.ok, r.detail] as [boolean, string])) }
     catch (e) { setNotice(`⚠️ ${String(e)}`) }
@@ -332,33 +328,45 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
   }
 
   // 已安装视图：优先用 lifecycle(带状态),回退到 sources 展开
+  // 行元数据优先取 catalog 缓存(星数/简介),catalog 没有时用依赖名兜底
+  const catalogOf = (name: string): MarketPlugin | undefined =>
+    allPlugins?.find(p => p.full_name === name)
   const lifecycleRows: MarketPlugin[] = lifecycleState
-    ? Object.entries(lifecycleState.items).map(([name, life]) => ({
-        full_name: name,
-        description: life.installedName ?? name,
-        zh_desc: life.installedName ?? name,
-        language: '',
-        stargazers_count: 0,
-        forks_count: 0,
-        topics: [],
-        html_url: `https://github.com/${name}`,
-        installed: true,
-      }))
+    ? Object.entries(lifecycleState.items).map(([name, life]) => {
+        const cat = catalogOf(name)
+        const desc = cat?.zh_desc ?? cat?.description ?? life.installedName ?? name
+        return {
+          full_name: name,
+          description: desc,
+          zh_desc: desc,
+          language: cat?.language ?? '',
+          stargazers_count: cat?.stargazers_count ?? 0,
+          forks_count: cat?.forks_count ?? 0,
+          topics: cat?.topics ?? [],
+          html_url: cat?.html_url ?? `https://github.com/${name}`,
+          installed: true,
+        }
+      })
     : []
   const installedRows: MarketPlugin[] = lifecycleRows.length > 0
     ? lifecycleRows
     : (installedState
-      ? Object.entries(installedState.sources).map(([dep, src]) => ({
-          full_name: src.includes('/') && !src.startsWith('@') ? src : dep,
-          description: dep,
-          zh_desc: dep,
-          language: '',
-          stargazers_count: 0,
-          forks_count: 0,
-          topics: [],
-          html_url: `https://github.com/${src.includes('/') && !src.startsWith('@') ? src : dep}`,
-          installed: true,
-        }))
+      ? Object.entries(installedState.sources).map(([dep, src]) => {
+          const repo = src.includes('/') && !src.startsWith('@') ? src : dep
+          const cat = catalogOf(repo)
+          const desc = cat?.zh_desc ?? cat?.description ?? dep
+          return {
+            full_name: repo,
+            description: desc,
+            zh_desc: desc,
+            language: cat?.language ?? '',
+            stargazers_count: cat?.stargazers_count ?? 0,
+            forks_count: cat?.forks_count ?? 0,
+            topics: cat?.topics ?? [],
+            html_url: cat?.html_url ?? `https://github.com/${repo}`,
+            installed: true,
+          }
+        })
       : [])
 
   const counts = browseState.status === 'ready' ? browseState.result.counts : null
@@ -376,7 +384,7 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
         <button type="button" className={view === 'browse' ? `${css.tab} ${css.tabActive}` : css.tab} onClick={() => switchView('browse')}>{t('browseTab')}</button>
         <button type="button" className={view === 'search' ? `${css.tab} ${css.tabActive}` : css.tab} onClick={() => switchView('search')}>{t('searchTab')}</button>
         <button type="button" className={view === 'installed' ? `${css.tab} ${css.tabActive}` : css.tab} onClick={() => switchView('installed')}>
-          {t('installedTab')}{installedState ? `（${installedState.installed.length}）` : ''}
+          {t('installedTab')}{lifecycleState ? `（${Object.keys(lifecycleState.items).length}）` : installedState ? `（${installedState.installed.length}）` : ''}
         </button>
       </div>
 

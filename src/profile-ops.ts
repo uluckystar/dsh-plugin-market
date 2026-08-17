@@ -5,7 +5,7 @@
  * 与本地 link 依赖永不误删。
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** Profile 清单的最小投影。 */
@@ -58,6 +58,9 @@ export function readProfile(dir: string): ProfileManifest {
   }
 }
 
+/** 备份文件保留数量（轮换：只留最近 N 个 .bak-*，防止无限累积）。 */
+const BACKUP_KEEP = 8
+
 /** 备份 profile package.json,返回备份路径。 */
 export function backupProfile(dir: string): string {
   mkdirSync(dir, { recursive: true })
@@ -69,6 +72,16 @@ export function backupProfile(dir: string): string {
   } else {
     writeFileSync(backup, '{}', 'utf8')
   }
+  // 轮换：只保留最近 BACKUP_KEEP 个备份（文件名带时间戳，字典序=时间序）
+  try {
+    const backups = readdirSync(dir)
+      .filter(f => f.startsWith('package.json.bak-'))
+      .sort()
+    while (backups.length > BACKUP_KEEP) {
+      const oldest = backups.shift()
+      if (oldest !== undefined) unlinkSync(join(dir, oldest))
+    }
+  } catch { /* 轮换失败不影响本次备份 */ }
   return backup
 }
 
@@ -163,7 +176,7 @@ export function removeBundle(dir: string, packageName: string): { backup: string
  */
 export function patchEntryIds(patchText: string): Set<string> {
   const ids = new Set<string>()
-  const re = /^\s*- id:\s*([\w@/-]+)\s*$/gm
+  const re = /^\s*- id:\s*['"]?([\w@/.-]+)['"]?\s*$/gm
   let m: RegExpExecArray | null
   while ((m = re.exec(patchText)) !== null) {
     if (m[1] !== undefined) ids.add(m[1])

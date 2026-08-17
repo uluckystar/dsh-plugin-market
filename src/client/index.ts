@@ -34,10 +34,19 @@ export function apply(ctx: ClientContext): void {
       headers: body === undefined ? undefined : { 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    if (!resp.ok) {
+      // 后端失败信封:尝试提取用户可读 detail(安装/启用/停用/卸载的失败原因)
+      try {
+        const body = await resp.json() as { message?: string; detail?: string }
+        throw new Error(body.detail ?? body.message ?? `HTTP ${resp.status}`)
+      } catch (e) {
+        if (e instanceof Error && e.message !== `HTTP ${resp.status}`) throw e
+        throw new Error(`HTTP ${resp.status}`)
+      }
+    }
     const data = await resp.json() as T & { ok?: boolean }
     if (data.ok === false) {
-      throw new Error((data as { message?: string }).message ?? 'request failed')
+      throw new Error((data as { detail?: string; message?: string }).detail ?? (data as { message?: string }).message ?? '操作未完成，请重试。')
     }
     return data
   }

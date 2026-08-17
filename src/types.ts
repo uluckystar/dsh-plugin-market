@@ -44,6 +44,19 @@ export interface MarketPlugin {
   readonly installed?: boolean
 }
 
+/**
+ * 插件分类：按 topics 匹配第一个命中的分类，未命中归 other。
+ * host（gateway）与 client（MarketTab）共用，保证分类规则单一来源。
+ */
+export function categoryOf(p: { readonly topics?: readonly string[] }): MarketCategoryId {
+  const topics = new Set((p.topics ?? []).map(t => t.toLowerCase()))
+  for (const cat of MARKET_CATEGORIES) {
+    if (cat.id === 'other') continue
+    if (cat.topics.some(t => topics.has(t))) return cat.id
+  }
+  return 'other'
+}
+
 /** 分类浏览结果。 */
 export interface MarketBrowseResult {
   readonly ok: true

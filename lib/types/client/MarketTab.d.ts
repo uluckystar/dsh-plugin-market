@@ -1,7 +1,7 @@
 /** 插件市场设置页 tab：分类浏览 / 搜索（本地+AI）/ 已安装管理 + mydsh.dev 引流。 */
 import { type ReactNode } from 'react';
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
-import type { MarketAssessResult, MarketBrowseResult, MarketInstallResult, MarketInstalledResult, MarketLifecycleResult, MarketPluginLifecycle, MarketSearchResult, MarketToggleResult, MarketUninstallResult } from '../types.ts';
+import { type MarketAssessResult, type MarketBrowseResult, type MarketInstallResult, type MarketInstalledResult, type MarketLifecycleResult, type MarketPluginLifecycle, type MarketSearchResult, type MarketToggleResult, type MarketUninstallResult } from '../types.ts';
 /** Registration-side Remote face used by the section. */
 export interface MarketTabInjected {
     search: (query: string, ai?: boolean) => Promise<MarketSearchResult>;

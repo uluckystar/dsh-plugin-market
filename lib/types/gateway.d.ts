@@ -43,7 +43,7 @@ export declare class PluginMarketGateway extends Service {
     constructor(ctx: Context, config: PluginMarketConfig);
     /** 插件大全：内存缓存 → 磁盘缓存 → 网络拉取（TTL 内零网络请求）。 */
     catalog(): Promise<MarketPlugin[]>;
-    /** 校验结果缓存（磁盘）：{full_name: 'valid' | 'invalid'}。 */
+    /** 校验结果缓存（磁盘）：{full_name: 'valid' | 'invalid' | 'skipped'}。skipped=连续限流后暂不校验（保持可见）。 */
     private validatedCache;
     /** 校验是否已在跑。 */
     private validating;
@@ -57,8 +57,6 @@ export declare class PluginMarketGateway extends Service {
     private startValidation;
     /** 过滤：invalid 的不显示（每次从磁盘刷新，独立校验脚本更新后无需重启即生效）。 */
     private filterValid;
-    /** 插件分类：按 topics 匹配第一个命中的分类，未命中归 other。 */
-    private categoryOf;
     /** 分类浏览：按分类列出插件（星数降序；limit=0 返回全部），附各分类计数。 */
     browse(category: string, limit?: number): Promise<MarketBrowseResult>;
     /** 检索：本地匹配 + 可选 AI 推荐（ai=false 秒回；AI 最多等 6 秒，失败不阻塞）。 */
@@ -85,6 +83,14 @@ export declare class PluginMarketGateway extends Service {
     private recordInstallFailure;
     /** 清除安装失败记录(安装成功后)。 */
     private clearInstallFailure;
+    /** 包名合法字符(防 shell 注入;enable/disable/uninstall 的输入必经此校验)。 */
+    private static readonly PACKAGE_NAME_RE;
+    /** 校验输入为合法包名/仓库名,不合法返回 null。 */
+    private validPackageName;
+    /** profile 写操作串行链:install/enable/disable/uninstall 排队执行,杜绝并发写 package.json。 */
+    private profileMutations;
+    /** 排队一个会写 profile 的操作(与 pnpm 子进程写互斥)。 */
+    private enqueueProfileMutation;
     /** 依赖名 → 已安装插件目录(node_modules 下,可能为 link 包)。 */
     private installedPackageDir;
     /** 是否可作为 profile 启用层安全加载。 */
