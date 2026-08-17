@@ -25,7 +25,10 @@ import { ProxyAgent } from 'undici'
 const base = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 const catalogPath = join(base, 'storages', 'plugin_market_catalog.json')
 const validatedPath = join(base, 'storages', 'plugin_market_validated_bundle_v1.json')
+const invalidRecheckPath = join(base, 'storages', 'plugin_market_invalid_recheck.json')
 const recheckValid = process.env.PLUGIN_MARKET_RECHECK_VALID === '1' || process.argv.includes('--recheck-valid')
+/** invalid 重查周期(天):作者修复声明后无需人工干预,到期自动重查转绿。默认 7 天。 */
+const INVALID_RECHECK_DAYS = Number(process.env.PLUGIN_MARKET_INVALID_RECHECK_DAYS ?? '7') || 7
 const concurrency = Math.max(1, Number(process.env.PLUGIN_MARKET_VALIDATE_CONCURRENCY ?? '24') || 24)
 const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || ''
 const dispatcher = proxyUrl !== '' ? new ProxyAgent(proxyUrl) : undefined
@@ -89,6 +92,21 @@ async function main() {
       return current !== 'valid' && current !== 'invalid'
     })
 
+  // invalid 自动重查:超过周期(默认 7 天)把 invalid 重新纳入队列,作者补声明后自然转绿。
+  // sidecar 文件记录上次全量重查时间;只在到期当轮触发,不占用日常增量校验。
+  let recheckInvalid = false
+  try {
+    const last = JSON.parse(readFileSync(invalidRecheckPath, 'utf8'))
+    if (typeof last.at === 'number' && Date.now() - last.at > INVALID_RECHECK_DAYS * 86400_000) recheckInvalid = true
+  } catch { recheckInvalid = true } // 无记录 → 首轮触发
+  if (recheckInvalid) {
+    const invalids = Object.entries(validated).filter(([, v]) => v === 'invalid').map(([k]) => k)
+    const invSet = new Set(invalids)
+    for (const p of todo) invSet.delete(p.full_name) // 已在 todo 的不重复
+    for (const name of invSet) todo.push({ full_name: name })
+    console.log(`invalid 到期重查: ${invalids.length} 个(每 ${INVALID_RECHECK_DAYS} 天)`)
+  }
+
   mkdirSync(join(validatedPath, '..'), { recursive: true })
   console.log(`共 ${plugins.length} 个候选，已严格校验 ${Object.keys(validated).length}，待校验 ${todo.length}${recheckValid ? '（重查 valid/skipped）' : ''}`)
   console.log(`proxy: ${proxyUrl !== '' ? '已配置' : '未配置'}；concurrency: ${concurrency}`)
@@ -114,6 +132,8 @@ async function main() {
 
   await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, todo.length)) }, () => worker()))
   writeFileSync(validatedPath, JSON.stringify(validated), 'utf8')
+  // 记录本轮 invalid 重查时间(不管是否触发,都推进周期,避免每天全量重查 invalid)
+  writeFileSync(invalidRecheckPath, JSON.stringify({ at: Date.now() }), 'utf8')
   const v = Object.values(validated).filter(x => x === 'valid').length
   const inv = Object.values(validated).filter(x => x === 'invalid').length
   const sk = Object.values(validated).filter(x => x === 'skipped').length
