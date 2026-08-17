@@ -26,6 +26,7 @@ import {
   type MarketInstalledResult, type MarketLifecycleResult, type MarketPlugin, type MarketPluginLifecycle,
   type MarketPluginStatus, type MarketRestartCapability, type MarketRestartResult, type MarketSearchResult, type MarketToggleResult, type MarketUninstallResult,
 } from './types.ts'
+import { sanitizeDshRestartArgs } from './restart-args.ts'
 
 const execAsync = promisify(execCallback)
 
@@ -958,7 +959,12 @@ export class PluginMarketGateway extends Service {
       if (!existsSync(wrapper)) return false
       // 重启命令 = 当前 node + 完整原参数。注意:node 选项(--import/--loader 等)只出现在
       // process.execArgv 而不在 process.argv,必须两者拼接才能完整复现原启动命令。
-      const restArgs = [...process.execArgv, ...process.argv.slice(1)]
+      const rawRestArgs = [...process.execArgv, ...process.argv.slice(1)]
+      const sanitized = sanitizeDshRestartArgs(rawRestArgs)
+      if (sanitized.removedUnsafeHost) {
+        console.log('[plugin-market] 自动重启已移除不安全的 --host 0.0.0.0,继续使用本机安全监听。')
+      }
+      const restArgs = sanitized.args
       // 端口探测参数(防双拉:外部监督者先拉起时 wrapper 放弃):从原参数里找 --port/-p。
       const portIdx = process.argv.findIndex((a, i) => (a === '--port' || a === '-p') && process.argv[i + 1] !== undefined)
       const port = portIdx !== -1 ? String(process.argv[portIdx + 1]) : ''
