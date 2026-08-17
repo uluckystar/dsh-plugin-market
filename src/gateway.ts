@@ -392,10 +392,50 @@ export class PluginMarketGateway extends Service {
       ? all
       : all.filter(p => categoryOf(p) === target)
     const sorted = [...list].sort((a, b) => (b.stargazers_count ?? 0) - (a.stargazers_count ?? 0))
+    const secMap = await this.securityMap()
     const plugins = (limit > 0 ? sorted.slice(0, limit) : sorted)
-      .map(p => ({ ...p, installed: installed.has(p.full_name) }))
+      .map(p => {
+        const sec = secMap.get(p.full_name)
+        return {
+          ...p,
+          installed: installed.has(p.full_name),
+          ...(sec ? { security: sec } : {}),
+        }
+      })
 
     return { ok: true, category: target, plugins, counts }
+  }
+
+  /** 安全评估状态缓存(5 分钟):browse 共用,避免每个请求都打网站。 */
+  private securityCache: { at: number; map: Map<string, { risk_score: number; verdict: string; blocked: boolean; reviewed_at?: string }> } | null = null
+
+  /** 拉取网站安全报告+禁用清单,构建 full_name → 安全状态 映射。失败返回空(不影响浏览)。 */
+  private async securityMap(): Promise<Map<string, { risk_score: number; verdict: string; blocked: boolean; reviewed_at?: string }>> {
+    const now = Date.now()
+    if (this.securityCache !== null && now - this.securityCache.at < 300_000) return this.securityCache.map
+    const map = new Map<string, { risk_score: number; verdict: string; blocked: boolean; reviewed_at?: string }>()
+    try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 8000)
+      const resp = await fetch(`${this.config.marketBaseUrl}/api/security/list`, {
+        headers: { 'user-agent': 'dsh-plugin-market/0.1' },
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+      const data = await resp.json() as {
+        reports?: Array<{ full_name: string; risk_score: number; verdict?: string; reviewed_at?: string }>
+        blocked?: Array<{ full_name: string; blocked_at?: string }>
+      }
+      for (const r of data.reports ?? []) {
+        map.set(r.full_name, { risk_score: r.risk_score ?? 0, verdict: r.verdict ?? '存在风险', blocked: false, reviewed_at: r.reviewed_at })
+      }
+      for (const b of data.blocked ?? []) {
+        const prev = map.get(b.full_name)
+        map.set(b.full_name, { risk_score: prev?.risk_score ?? 100, verdict: '恶意', blocked: true, reviewed_at: prev?.reviewed_at })
+      }
+    } catch { /* 安全服务不可用不影响浏览 */ }
+    this.securityCache = { at: now, map }
+    return map
   }
 
   /** 检索：本地匹配 + 可选 AI 推荐（ai=false 秒回；AI 最多等 6 秒，失败不阻塞）。 */

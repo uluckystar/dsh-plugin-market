@@ -25,6 +25,17 @@ export interface MarketPlugin {
     readonly html_url: string;
     /** 是否已安装到当前 profile。 */
     readonly installed?: boolean;
+    /** 安全评估状态(有正式报告/已禁用时由 gateway 附上)。 */
+    readonly security?: {
+        /** 风险分 0-100。 */
+        readonly risk_score?: number;
+        /** 结论:通过/存在风险/恶意。 */
+        readonly verdict?: string;
+        /** 是否已被安全评估判定恶意并禁用。 */
+        readonly blocked?: boolean;
+        /** 报告发布时间。 */
+        readonly reviewed_at?: string;
+    };
 }
 /**
  * 插件分类：按 topics 匹配第一个命中的分类，未命中归 other。

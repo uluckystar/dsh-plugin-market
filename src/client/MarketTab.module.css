@@ -124,3 +124,14 @@
 .btnRestart:hover { background: #bae6fd; }
 .btnRestart:disabled { opacity: .6; cursor: default; }
 .restartSpinner { font-size: 14px; }
+
+/* 安全评估状态徽章 */
+.secBadge {
+  display: inline-block; vertical-align: middle; margin-left: 6px;
+  font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 8px;
+  border: 1px solid;
+}
+.secBadgeOk { background: rgba(63,178,127,.12); border-color: rgba(63,178,127,.4); color: #2e8b57; }
+.secBadgeMid { background: rgba(240,180,41,.12); border-color: rgba(240,180,41,.45); color: #a16207; }
+.secBadgeHigh { background: rgba(230,120,60,.12); border-color: rgba(230,120,60,.45); color: #c2410c; }
+.secBadgeBlock { background: rgba(230,57,70,.14); border-color: rgba(230,57,70,.5); color: #b91c1c; }

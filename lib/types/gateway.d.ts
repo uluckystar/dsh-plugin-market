@@ -67,6 +67,10 @@ export declare class PluginMarketGateway extends Service {
     private filterValid;
     /** 分类浏览：按分类列出插件（星数降序；limit=0 返回全部），附各分类计数。 */
     browse(category: string, limit?: number): Promise<MarketBrowseResult>;
+    /** 安全评估状态缓存(5 分钟):browse 共用,避免每个请求都打网站。 */
+    private securityCache;
+    /** 拉取网站安全报告+禁用清单,构建 full_name → 安全状态 映射。失败返回空(不影响浏览)。 */
+    private securityMap;
     /** 检索：本地匹配 + 可选 AI 推荐（ai=false 秒回；AI 最多等 6 秒，失败不阻塞）。 */
     search(query: string, ai: boolean): Promise<MarketSearchResult>;
     /** 一键安装：先校验仓库是有效 DSH 插件（有 dsh.bundle/client 声明或 cordis.patch.yml），再 pnpm add。 */

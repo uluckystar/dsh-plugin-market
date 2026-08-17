@@ -65,6 +65,11 @@ export declare const zh: {
     assess: string;
     assessing: string;
     assessReported: string;
+    secBadgeShort: string;
+    secBadgeTip: string;
+    secBlockedShort: string;
+    secBlockedTip: string;
+    secBlockedInstall: string;
     assessPending: string;
     stars: string;
     lang: string;
@@ -141,6 +146,11 @@ export declare const en: {
     assess: string;
     assessing: string;
     assessReported: string;
+    secBadgeShort: string;
+    secBadgeTip: string;
+    secBlockedShort: string;
+    secBlockedTip: string;
+    secBlockedInstall: string;
     assessPending: string;
     stars: string;
     lang: string;

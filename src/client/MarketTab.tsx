@@ -120,11 +120,21 @@ function PluginRow(
   const desc = p.zh_desc ?? p.en_desc ?? p.description ?? t('noDesc')
   // 只有 owner/repo 格式（非依赖名）才可跳 mydsh 详情页
   const isRepo = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(p.full_name)
+  const sec = p.security
+  const secBadge = sec ? (
+    sec.blocked
+      ? <span className={`${css.secBadge} ${css.secBadgeBlock}`} title={t('secBlockedTip')}>🚫 {t('secBlockedShort')}</span>
+      : <span className={`${css.secBadge} ${(sec.risk_score ?? 0) >= 51 ? css.secBadgeHigh : (sec.risk_score ?? 0) >= 21 ? css.secBadgeMid : css.secBadgeOk}`}
+          title={`${t('secBadgeTip')}(${sec.verdict ?? ''})`}>
+          {(sec.risk_score ?? 0) >= 81 ? '🔴' : (sec.risk_score ?? 0) >= 51 ? '🟠' : (sec.risk_score ?? 0) >= 21 ? '🟡' : '🟢'} {t('secBadgeShort')} {sec.risk_score ?? '—'}
+        </span>
+  ) : null
   return (
     <div className={css.row}>
       <div className={css.rowMain}>
         <div className={css.rowName}>
           {p.full_name}
+          {secBadge}
           {statusBadge(status, t)}
         </div>
         <div className={css.rowDesc}>{desc}</div>
@@ -306,6 +316,11 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
 
   const handleInstall = async (name: string) => {
     if (!window.confirm(t('confirmInstall').replace('{name}', name))) return
+    // 已被安全评估判定的恶意插件拒绝安装
+    if (allPlugins?.find(p => p.full_name === name)?.security?.blocked) {
+      setNotice(`🚫 ${t('secBlockedInstall')}`)
+      return
+    }
     setBusyRow(name); setBusyAction('install'); setNotice('')
     try { await afterMutation(...await install(name).then(r => [r.ok, r.detail] as [boolean, string])) }
     catch (e) { setNotice(`⚠️ ${String(e)}`) }
