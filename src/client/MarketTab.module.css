@@ -108,3 +108,19 @@
 
 /* 已安装视图的提示行(冲突原因/失败原因) */
 .rowNote { font-size: 12px; color: var(--muted, #666); margin: 2px 0 10px 2px; }
+
+/* 重启生效入口(启用/停用后出现) */
+.restartRow {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px;
+  padding: 8px 12px; margin: 8px 0;
+}
+.restartHint { font-size: 12px; color: #0369a1; flex: 1; min-width: 200px; }
+.btnRestart {
+  padding: 6px 14px; border-radius: 8px; cursor: pointer;
+  font-size: 12px; font-weight: 600; border: 1px solid #7dd3fc;
+  background: #e0f2fe; color: #0369a1; white-space: nowrap;
+}
+.btnRestart:hover { background: #bae6fd; }
+.btnRestart:disabled { opacity: .6; cursor: default; }
+.restartSpinner { font-size: 14px; }

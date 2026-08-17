@@ -7,7 +7,7 @@ import {
   MARKET_CATEGORIES, categoryOf,
   type MarketAssessResult, type MarketBrowseResult, type MarketInstallResult,
   type MarketInstalledResult, type MarketLifecycleResult, type MarketPlugin, type MarketPluginLifecycle,
-  type MarketPluginStatus, type MarketSearchResult, type MarketToggleResult, type MarketUninstallResult,
+  type MarketPluginStatus, type MarketRestartResult, type MarketSearchResult, type MarketToggleResult, type MarketUninstallResult,
 } from '../types.ts'
 import css from './MarketTab.module.css'
 
@@ -21,6 +21,7 @@ export interface MarketTabInjected {
   disable: (repo: string) => Promise<MarketToggleResult>
   status: (repo: string) => Promise<MarketPluginLifecycle>
   lifecycle: () => Promise<MarketLifecycleResult>
+  restart: () => Promise<MarketRestartResult>
   assess: (repo: string) => Promise<MarketAssessResult>
   installed: () => Promise<MarketInstalledResult>
 }
@@ -143,7 +144,7 @@ function PluginRow(
 }
 
 /** Render the plugin market Settings tab. */
-export function MarketTab({ search, browse, install, uninstall, enable, disable, status, lifecycle, assess, installed, t }: MarketTabProps): ReactNode {
+export function MarketTab({ search, browse, install, uninstall, enable, disable, status, lifecycle, restart, assess, installed, t }: MarketTabProps): ReactNode {
   const [view, setView] = useState<'browse' | 'search' | 'installed'>('browse')
   const [category, setCategory] = useState<string>('all')
   const [query, setQuery] = useState('')
@@ -268,6 +269,41 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
     if (view === 'browse') void runBrowse(category)
   }
 
+  /** 需要重启才生效的插件名(启用/停用成功后设置,驱动「立即重启」入口)。 */
+  const [restartPendingFor, setRestartPendingFor] = useState<string | null>(null)
+  /** 自动重启进行中(轮询服务恢复,恢复后自动刷新)。 */
+  const [restarting, setRestarting] = useState(false)
+
+  /** 自动重启:确认 → 调后端 → 轮询服务恢复 → 自动刷新页面。 */
+  const handleRestartNow = async () => {
+    if (!window.confirm(t('confirmRestart'))) return
+    setRestarting(true)
+    setNotice(t('restarting'))
+    try {
+      await restart()
+      // 服务退出+拉起期间请求会失败,轮询直到恢复(最长 90 秒)
+      const deadline = Date.now() + 90_000
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 2000))
+        try {
+          const resp = await fetch('/api/plugin-market/lifecycle', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+          if (resp.ok) {
+            setNotice(t('restartDone'))
+            setRestarting(false)
+            setRestartPendingFor(null)
+            window.location.reload()
+            return
+          }
+        } catch { /* 服务尚未恢复,继续轮询 */ }
+      }
+      setNotice('⚠️ ' + t('restartCap_manual'))
+      setRestarting(false)
+    } catch (e) {
+      setNotice(`⚠️ ${String(e)}`)
+      setRestarting(false)
+    }
+  }
+
   const handleInstall = async (name: string) => {
     if (!window.confirm(t('confirmInstall').replace('{name}', name))) return
     setBusyRow(name); setBusyAction('install'); setNotice('')
@@ -281,6 +317,7 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
     setBusyRow(name); setBusyAction('enable'); setNotice('')
     try {
       const r = await enable(name)
+      setRestartPendingFor(r.ok && r.restartRequired ? name : null)
       await afterMutation(r.ok, r.ok ? (r.restartRequired ? t('enabledRestartHint') : r.detail) : r.detail)
     } catch (e) { setNotice(`⚠️ ${String(e)}`) }
     finally { setBusyRow(null) }
@@ -291,6 +328,7 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
     setBusyRow(name); setBusyAction('disable'); setNotice('')
     try {
       const r = await disable(name)
+      setRestartPendingFor(r.ok && r.restartRequired ? name : null)
       await afterMutation(r.ok, r.ok ? (r.restartRequired ? t('disabledRestartHint') : r.detail) : r.detail)
     } catch (e) { setNotice(`⚠️ ${String(e)}`) }
     finally { setBusyRow(null) }
@@ -389,6 +427,28 @@ export function MarketTab({ search, browse, install, uninstall, enable, disable,
       </div>
 
       {notice !== '' ? <p className={css.notice}>{notice}</p> : null}
+
+      {/* 重启生效入口:启用/停用后需要重启时出现;可自动重启 → 按钮,否则 → 指引文案 */}
+      {restartPendingFor !== null && !restarting ? (
+        <div className={css.restartRow}>
+          <span className={css.restartHint}>
+            {lifecycleState?.canAutoRestart === false
+              ? t('restartCap_manual')
+              : t(`restartCap_${lifecycleState?.restartCapability ?? 'pm2'}`)}
+          </span>
+          {lifecycleState?.canAutoRestart !== false ? (
+            <button type="button" className={css.btnRestart} onClick={() => void handleRestartNow()}>
+              {t('restartNow')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {restarting ? (
+        <div className={css.restartRow}>
+          <span className={css.restartHint}>{t('restarting')}</span>
+          <span className={css.restartSpinner}>⏳</span>
+        </div>
+      ) : null}
 
       {view === 'browse' ? (
         <>

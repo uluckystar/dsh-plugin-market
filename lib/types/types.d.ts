@@ -121,12 +121,25 @@ export interface MarketPluginLifecycle {
     /** 上次安装失败的错误摘要。 */
     readonly lastError?: string;
 }
+/** 进程监督者类型(决定能否自动重启):pm2=docker=systemd 可自动,manual=需手动。 */
+export type MarketRestartCapability = 'pm2' | 'docker' | 'systemd' | 'manual';
 /** 生命周期查询结果(status/lifecycle 端点)。 */
 export interface MarketLifecycleResult {
     readonly ok: true;
     readonly profile: string;
     /** full_name → 生命周期详情。 */
     readonly items: Readonly<Record<string, MarketPluginLifecycle>>;
+    /** 当前进程的监督者(决定市场能否提供「自动重启生效」)。 */
+    readonly restartCapability: MarketRestartCapability;
+    /** 是否可自动重启(capability !== 'manual')。 */
+    readonly canAutoRestart: boolean;
+}
+/** 自动重启结果。 */
+export interface MarketRestartResult {
+    readonly ok: boolean;
+    readonly detail: string;
+    /** 预计恢复耗时(秒,供前端提示)。 */
+    readonly etaSeconds: number;
 }
 /** 启用/禁用结果。 */
 export interface MarketToggleResult {

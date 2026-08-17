@@ -7,7 +7,7 @@
  */
 import { Context, Service } from '@deepseek-ai/cordis';
 import s from '@deepseek-ai/schemastery';
-import { type MarketAssessResult, type MarketBrowseResult, type MarketInstallResult, type MarketInstalledResult, type MarketLifecycleResult, type MarketPlugin, type MarketPluginLifecycle, type MarketSearchResult, type MarketToggleResult, type MarketUninstallResult } from './types.ts';
+import { type MarketAssessResult, type MarketBrowseResult, type MarketInstallResult, type MarketInstalledResult, type MarketLifecycleResult, type MarketPlugin, type MarketPluginLifecycle, type MarketRestartResult, type MarketSearchResult, type MarketToggleResult, type MarketUninstallResult } from './types.ts';
 /** 部署可调项（cordis.patch.yml config 可改）。 */
 export interface PluginMarketConfig {
     /** mydsh.dev 数据源基址。 */
@@ -113,6 +113,10 @@ export declare class PluginMarketGateway extends Service {
     private lifecycleFor;
     /** 全量生命周期(供列表/已安装页)。 */
     lifecycle(): Promise<MarketLifecycleResult>;
+    /** 检测当前进程由谁托管,决定能否安全地「自动重启」:退出后必须有人拉起,否则进程自杀=服务永久下线。 */
+    private restartCapability;
+    /** 自动重启:响应先返回,再触发当前进程退出,由监督者(PM2/Docker/systemd)自动拉起新进程加载新配置。 */
+    restart(): Promise<MarketRestartResult>;
     /** 单个插件状态(已安装页用)。 */
     status(fullName: string): Promise<MarketPluginLifecycle>;
     /** 启用:加入启用列表(保留依赖关系不动)。冲突或核心组件拒绝,写前备份写后校验。 */

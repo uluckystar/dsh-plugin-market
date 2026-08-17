@@ -60,6 +60,7 @@ export function apply(ctx: ClientContext): void {
     disable: (repo) => fetchJson('/api/plugin-market/disable', { repo }),
     status: (repo) => fetchJson('/api/plugin-market/status', { repo }),
     lifecycle: () => fetchJson('/api/plugin-market/lifecycle'),
+    restart: () => fetchJson('/api/plugin-market/restart'),
     assess: (repo) => fetchJson('/api/plugin-market/assess', { repo }),
     installed: () => fetchJson('/api/plugin-market/installed'),
   })

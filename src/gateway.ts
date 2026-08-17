@@ -6,7 +6,7 @@
  * - installed：读当前 profile 的 package.json dependencies 判断已装
  */
 
-import { exec as execCallback } from 'node:child_process'
+import { exec as execCallback, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -22,10 +22,25 @@ import {
   MARKET_CATEGORIES, categoryOf,
   type MarketAssessResult, type MarketBrowseResult, type MarketInstallResult,
   type MarketInstalledResult, type MarketLifecycleResult, type MarketPlugin, type MarketPluginLifecycle,
-  type MarketPluginStatus, type MarketSearchResult, type MarketToggleResult, type MarketUninstallResult,
+  type MarketPluginStatus, type MarketRestartCapability, type MarketRestartResult, type MarketSearchResult, type MarketToggleResult, type MarketUninstallResult,
 } from './types.ts'
 
 const execAsync = promisify(execCallback)
+
+/** 父进程名(跨平台):Linux 读 /proc,其余用 ps。失败返回空串(安全兜底:视为无监督者)。 */
+function parentProcessName(ppid: number): string {
+  try {
+    if (process.platform === 'linux') {
+      return readFileSync(`/proc/${ppid}/comm`, 'utf8').trim()
+    }
+    if (process.platform === 'darwin' || process.platform === 'freebsd') {
+      return execFileSync('ps', ['-o', 'comm=', '-p', String(ppid)], { encoding: 'utf8', timeout: 3000 }).trim()
+    }
+    return ''
+  } catch {
+    return ''
+  }
+}
 
 /** 脱敏代理地址：不打印 user:pass 凭据（保留协议/主机/端口）。 */
 function maskProxyUrl(url: string): string {
@@ -779,7 +794,46 @@ export class PluginMarketGateway extends Service {
     for (const failed of Object.keys(this.lifecycleFailures)) {
       if (items[failed] === undefined) items[failed] = this.lifecycleFor(failed, input)
     }
-    return { ok: true, profile: this.config.profileName, items }
+    const cap = this.restartCapability()
+    return { ok: true, profile: this.config.profileName, items, restartCapability: cap, canAutoRestart: cap !== 'manual' }
+  }
+
+  /** 检测当前进程由谁托管,决定能否安全地「自动重启」:退出后必须有人拉起,否则进程自杀=服务永久下线。 */
+  private restartCapability(): MarketRestartCapability {
+    // 检测顺序:父进程是谁最可靠(环境变量会被 shell/会话运行时污染,不可信)。
+    // 1) PM2:父进程是 PM2 God Daemon(进程名以 PM2 开头)。
+    if (/^PM2/i.test(parentProcessName(process.ppid))) return 'pm2'
+    // 2) Docker:容器标记存在。容器退出后由容器的 restart policy 拉起(需用户已配置)。
+    if (existsSync('/.dockerenv')) return 'docker'
+    // 3) systemd:服务进程由 systemd 注入 INVOCATION_ID(普通 shell 不会有)。
+    if (process.env.INVOCATION_ID !== undefined && process.env.INVOCATION_ID !== '') return 'systemd'
+    // 4) 手动/裸启动(含 Windows):没有任何监督者,退出后无人拉起 → 不提供自动重启。
+    return 'manual'
+  }
+
+  /** 自动重启:响应先返回,再触发当前进程退出,由监督者(PM2/Docker/systemd)自动拉起新进程加载新配置。 */
+  async restart(): Promise<MarketRestartResult> {
+    const cap = this.restartCapability()
+    if (cap === 'manual') {
+      return {
+        ok: false,
+        detail: '当前 DSH 由手动启动，退出后不会被自动拉起，不能自动重启。请手动重启 DSH 后生效。',
+        etaSeconds: 0,
+      }
+    }
+    // 写队列清空后再退出,避免重启打断在途的 profile 写入。
+    const done = this.enqueueProfileMutation(async () => undefined)
+    void done.then(() => {
+      // 先给浏览器 300ms 收响应,再优雅退出;监督者检测到退出自动拉起。
+      setTimeout(() => process.exit(0), 300)
+    })
+    return {
+      ok: true,
+      detail: cap === 'docker'
+        ? '正在重启 DSH，预计 10–60 秒后恢复（需容器配置了自动重启策略）。重启后所有对话历史都会保留，仅当前正在进行的任务会中断。'
+        : '正在重启 DSH，预计 10–30 秒后恢复。重启后所有对话历史都会保留，仅当前正在进行的任务会中断。',
+      etaSeconds: cap === 'docker' ? 60 : 30,
+    }
   }
 
   /** 单个插件状态(已安装页用)。 */
@@ -1012,6 +1066,10 @@ export function makeRoutes(gateway: PluginMarketGateway): import('@deepseek-ai/d
     {
       kind: 'exact', path: '/api/plugin-market/lifecycle',
       handler: async (_req, res) => respond(res, gateway.lifecycle()),
+    },
+    {
+      kind: 'exact', path: '/api/plugin-market/restart',
+      handler: guarded(async (_req, res) => respond(res, gateway.restart())),
     },
     {
       kind: 'exact', path: '/api/plugin-market/browse',
