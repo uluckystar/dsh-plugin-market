@@ -93,6 +93,8 @@ export interface PluginMarketConfig {
   readonly proxyUrl: string
   /** GitHub token（批量校验插件有效性用，5000 次/小时；空则用未认证 60 次/小时）。 */
   readonly githubToken: string
+  /** 网站安全评估内部通道 key（插件市场一键提交用；空则引导网页提交）。 */
+  readonly securityInternalKey: string
 }
 
 /** 检索关键词切分。 */
@@ -132,6 +134,7 @@ export class PluginMarketGateway extends Service {
     pnpmCommand: s.string().default('npx -y pnpm@11.7.0'),
     proxyUrl: s.string().default('http://127.0.0.1:7897'),
     githubToken: s.string().default(''),
+    securityInternalKey: s.string().default(''),
   })
 
   private readonly config: PluginMarketConfig
@@ -159,6 +162,7 @@ export class PluginMarketGateway extends Service {
       pnpmCommand: config?.pnpmCommand ?? 'npx -y pnpm@11.7.0',
       proxyUrl: config?.proxyUrl ?? 'http://127.0.0.1:7897',
       githubToken: config?.githubToken || process.env.PLUGIN_MARKET_GH_TOKEN || '',
+      securityInternalKey: config?.securityInternalKey || process.env.PLUGIN_MARKET_SECURITY_KEY || '',
     }
     const base = process.env.DSH_HOME ?? join(homedir(), '.dsh')
     const safeProfile = this.config.profileName.replace(/[^A-Za-z0-9_.-]/g, '_')
@@ -574,6 +578,7 @@ export class PluginMarketGateway extends Service {
       return { ok: false, fullName: name, status: 'error', detail: '仓库名格式应为 owner/repo' }
     }
     try {
+      // 拉取网站安全数据:已发布报告 + 禁用清单
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), 10000)
       const resp = await fetch(`${this.config.marketBaseUrl}/api/security/list`, {
@@ -581,15 +586,54 @@ export class PluginMarketGateway extends Service {
         signal: controller.signal,
       })
       clearTimeout(timer)
-      const data = await resp.json() as { reports?: Array<{ full_name: string; risk_score: number; reviewed_at?: string }> }
+      const data = await resp.json() as {
+        reports?: Array<{ full_name: string; risk_score: number; reviewed_at?: string }>
+        blocked?: Array<{ full_name: string; blocked_at?: string; reason?: string }>
+      }
       const existing = (data.reports ?? []).find(r => r.full_name === name)
+      const blocked = (data.blocked ?? []).find(r => r.full_name === name)
+      if (blocked) {
+        return {
+          ok: true, fullName: name, status: 'reported', detail: '该插件已被安全评估判定为恶意，已禁用。',
+          risk_score: 100,
+        }
+      }
       if (existing) {
         return {
-          ok: true, fullName: name, status: 'reported', detail: '已有正式安全报告',
+          ok: true, fullName: name, status: 'reported', detail: '已有正式安全报告，可点击查看。',
           risk_score: existing.risk_score,
         }
       }
-      // 无报告：引导用户到网页提交（Turnstile 人机验证无法在服务端模拟）
+      // 无报告：有内部 key → 直接提交(服务端通道,跳过人机验证);否则引导网页提交
+      if (this.config.securityInternalKey !== '') {
+        const submitResp = await fetch(`${this.config.marketBaseUrl}/api/security/submit`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'user-agent': 'dsh-plugin-market/0.1' },
+          body: JSON.stringify({ repo: `https://github.com/${name}`, internal: this.config.securityInternalKey }),
+          signal: controller.signal,
+        })
+        const submitData = await submitResp.json() as { ok?: boolean; status?: string; submission?: { risk_score?: number; verdict?: string; needs_review?: boolean }; error?: string; message?: string }
+        if (submitData.ok === true && submitData.status === 'submitted') {
+          return {
+            ok: true, fullName: name, status: 'pending',
+            detail: `已提交安全评估，AI 初评风险分 ${submitData.submission?.risk_score ?? '—'}/100（${submitData.submission?.verdict ?? ''}）。深度复核完成后会邮件通知并发布报告。`,
+            risk_score: submitData.submission?.risk_score,
+          }
+        }
+        if (submitData.status === 'pending') {
+          return {
+            ok: true, fullName: name, status: 'pending',
+            detail: '该插件已在评估队列中，复核完成后会发布报告。',
+          }
+        }
+        if (submitData.status === 'reported') {
+          return { ok: true, fullName: name, status: 'reported', detail: '已有正式安全报告，可点击查看。' }
+        }
+        return {
+          ok: true, fullName: name, status: 'pending',
+          detail: `安全评估提交未完成（${submitData.message ?? submitData.error ?? '未知原因'}），可稍后重试或到网站提交。`,
+        }
+      }
       return {
         ok: true, fullName: name, status: 'pending',
         detail: `该仓库暂无安全报告。请到 ${this.config.marketBaseUrl}/plugins 的「安全报告」tab 提交（需人机验证），提交后会自动评估并邮件通知维护者。`,

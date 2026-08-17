@@ -24,6 +24,8 @@ export interface PluginMarketConfig {
     readonly proxyUrl: string;
     /** GitHub token（批量校验插件有效性用，5000 次/小时；空则用未认证 60 次/小时）。 */
     readonly githubToken: string;
+    /** 网站安全评估内部通道 key（插件市场一键提交用；空则引导网页提交）。 */
+    readonly securityInternalKey: string;
 }
 /** 插件市场服务：检索 + 安装 + 安全评估 + 已装清单。 */
 export declare class PluginMarketGateway extends Service {
