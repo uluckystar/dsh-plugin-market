@@ -30,6 +30,7 @@ const recheckValid = process.env.PLUGIN_MARKET_RECHECK_VALID === '1' || process.
 /** invalid 重查周期(天):作者修复声明后无需人工干预,到期自动重查转绿。默认 7 天。 */
 const INVALID_RECHECK_DAYS = Number(process.env.PLUGIN_MARKET_INVALID_RECHECK_DAYS ?? '7') || 7
 const concurrency = Math.max(1, Number(process.env.PLUGIN_MARKET_VALIDATE_CONCURRENCY ?? '24') || 24)
+const maxItems = Math.max(0, Number(process.env.PLUGIN_MARKET_VALIDATE_MAX_ITEMS ?? '0') || 0)
 const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || ''
 const dispatcher = proxyUrl !== '' ? new ProxyAgent(proxyUrl) : undefined
 
@@ -84,13 +85,15 @@ async function main() {
     ? JSON.parse(readFileSync(validatedPath, 'utf8'))
     : {}
 
-  const todo = [...plugins]
+  let todo = [...plugins]
     .sort((a, b) => (b.stargazers_count ?? 0) - (a.stargazers_count ?? 0))
     .filter(p => {
       const current = validated[p.full_name]
       if (recheckValid) return current !== 'invalid'
       return current !== 'valid' && current !== 'invalid'
     })
+  const discoveredTodo = todo.length
+  if (maxItems > 0 && todo.length > maxItems) todo = todo.slice(0, maxItems)
 
   // invalid 自动重查:超过周期(默认 7 天)把 invalid 重新纳入队列,作者补声明后自然转绿。
   // sidecar 文件记录上次全量重查时间;只在到期当轮触发,不占用日常增量校验。
@@ -108,7 +111,7 @@ async function main() {
   }
 
   mkdirSync(join(validatedPath, '..'), { recursive: true })
-  console.log(`共 ${plugins.length} 个候选，已严格校验 ${Object.keys(validated).length}，待校验 ${todo.length}${recheckValid ? '（重查 valid/skipped）' : ''}`)
+  console.log(`共 ${plugins.length} 个候选，已严格校验 ${Object.keys(validated).length}，本轮待校验 ${todo.length}/${discoveredTodo}${recheckValid ? '（重查 valid/skipped）' : ''}${maxItems > 0 ? `（上限 ${maxItems}）` : ''}`)
   console.log(`proxy: ${proxyUrl !== '' ? '已配置' : '未配置'}；concurrency: ${concurrency}`)
 
   let cursor = 0
