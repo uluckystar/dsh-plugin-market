@@ -17,7 +17,7 @@
  *   HTTPS_PROXY / HTTP_PROXY         GitHub 访问代理（Node fetch 通过 undici ProxyAgent 显式使用）
  *   PLUGIN_MARKET_VALIDATE_CONCURRENCY 默认 24
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { ProxyAgent } from 'undici'
@@ -26,6 +26,7 @@ const base = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 const catalogPath = join(base, 'storages', 'plugin_market_catalog.json')
 const validatedPath = join(base, 'storages', 'plugin_market_validated_bundle_v1.json')
 const invalidRecheckPath = join(base, 'storages', 'plugin_market_invalid_recheck.json')
+const catalogSourcePath = process.env.PLUGIN_MARKET_CATALOG_SOURCE ?? ''
 const recheckValid = process.env.PLUGIN_MARKET_RECHECK_VALID === '1' || process.argv.includes('--recheck-valid')
 /** invalid 重查周期(天):作者修复声明后无需人工干预,到期自动重查转绿。默认 7 天。 */
 const INVALID_RECHECK_DAYS = Number(process.env.PLUGIN_MARKET_INVALID_RECHECK_DAYS ?? '7') || 7
@@ -45,6 +46,46 @@ function fetchOptions(signal) {
 function declaresProfileBundle(pkg) {
   const patch = pkg?.dsh?.bundle?.patch
   return typeof patch === 'string' && patch.trim() !== ''
+}
+
+/**
+ * 将站点插件目录同步为校验器目录缓存，避免插件市场的 TTL 缓存与站点持续增长脱节。
+ * 写入采用临时文件 + rename，校验任务永远只会读到完整 JSON。
+ */
+function refreshCatalogFromSource() {
+  if (catalogSourcePath === '') return
+  if (!existsSync(catalogSourcePath)) {
+    throw new Error(`插件目录源不存在: ${catalogSourcePath}`)
+  }
+  const source = JSON.parse(readFileSync(catalogSourcePath, 'utf8'))
+  const sourcePlugins = Array.isArray(source) ? source : source.plugins
+  if (!Array.isArray(sourcePlugins) || sourcePlugins.length === 0) {
+    throw new Error(`插件目录源格式错误或为空: ${catalogSourcePath}`)
+  }
+  const seen = new Set()
+  const plugins = []
+  for (const item of sourcePlugins) {
+    const fullName = typeof item?.full_name === 'string' ? item.full_name.trim() : ''
+    if (!/^[^/\s]+\/[^/\s]+$/.test(fullName) || seen.has(fullName)) continue
+    seen.add(fullName)
+    plugins.push({
+      full_name: fullName,
+      description: item.description ?? '',
+      zh_desc: item.zh_desc,
+      en_desc: item.en_desc,
+      language: item.language ?? '',
+      stargazers_count: item.stargazers_count ?? 0,
+      forks_count: item.forks_count ?? 0,
+      topics: Array.isArray(item.topics) ? item.topics : [],
+      html_url: item.html_url ?? `https://github.com/${fullName}`,
+    })
+  }
+  if (plugins.length === 0) throw new Error('插件目录源没有合法仓库条目')
+  mkdirSync(join(catalogPath, '..'), { recursive: true })
+  const tempPath = `${catalogPath}.tmp-${process.pid}`
+  writeFileSync(tempPath, JSON.stringify({ at: Date.now(), plugins }), 'utf8')
+  renameSync(tempPath, catalogPath)
+  console.log(`目录同步完成: ${plugins.length} 个插件 <- ${catalogSourcePath}`)
 }
 
 /** 校验单个仓库：返回 'valid' | 'invalid' | 'skipped' */
@@ -75,6 +116,7 @@ async function checkOne(fullName) {
 }
 
 async function main() {
+  refreshCatalogFromSource()
   if (!existsSync(catalogPath)) {
     console.error('找不到 catalog 缓存，请先让插件市场跑一次 browse')
     process.exit(1)
