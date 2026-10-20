@@ -16,5 +16,8 @@ try {
   const result=JSON.parse(readFileSync(join(root,'storages/plugin_market_validated_bundle_v1.json')));
   assert.equal(Object.values(result).filter(v=>v==='valid').length,2,'daily limit must include invalid rechecks');
   assert.equal(Object.values(result).filter(v=>v==='invalid').length,2);
-  console.log('Validation: bounded invalid rechecks and atomic result persistence passed');
+  const failedProgram=`globalThis.fetch=async()=>{throw new Error('network unavailable')};\n`+source.replace(/^#!.*\n/,'');
+  const failed=spawnSync(process.execPath,['--input-type=module'],{input:failedProgram,encoding:'utf8',env:{...process.env,DSH_HOME:root,HTTP_PROXY:'',HTTPS_PROXY:'',PLUGIN_MARKET_VALIDATE_MAX_ITEMS:'2',PLUGIN_MARKET_VALIDATE_CONCURRENCY:'1',PLUGIN_MARKET_CATALOG_SOURCE:''}});
+  assert.equal(failed.status,2,'network-skipped checks must not report a successful run');
+  console.log('Validation: bounded rechecks, atomic persistence and nonzero network-failure status passed');
 } finally {rmSync(root,{recursive:true,force:true});}

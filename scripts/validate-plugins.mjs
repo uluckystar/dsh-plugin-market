@@ -35,7 +35,9 @@ const maxItems = Math.max(0, Number(process.env.PLUGIN_MARKET_VALIDATE_MAX_ITEMS
 const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || ''
 const dispatcher = proxyUrl !== '' ? new ProxyAgent(proxyUrl) : undefined
 
-const headers = { 'user-agent': 'dsh-plugin-market/0.1 (+https://mydsh.dev)' }
+const headers = { 'user-agent': 'dsh-plugin-market/0.1 (+https://mydsh.dev)', accept: 'application/vnd.github.raw+json', 'x-github-api-version': '2022-11-28' }
+const githubToken = process.env.GH_TOKEN || process.env.PLUGIN_MARKET_GH_TOKEN
+if (githubToken) headers.authorization = `Bearer ${githubToken}`
 
 function fetchOptions(signal) {
   const init = { headers, signal }
@@ -96,11 +98,14 @@ async function checkOne(fullName) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 12000)
     try {
-      const resp = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/HEAD/package.json`, fetchOptions(controller.signal))
+      const resp = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/package.json`, fetchOptions(controller.signal))
       if (resp.status === 404) return 'invalid'
       if (resp.ok) {
         let pkg
-        try { pkg = JSON.parse((await resp.text()).replace(/^\uFEFF/, '')) }
+        try {
+          pkg = JSON.parse((await resp.text()).replace(/^\uFEFF/, ''))
+          if (pkg.encoding === 'base64' && typeof pkg.content === 'string') pkg = JSON.parse(Buffer.from(pkg.content, 'base64').toString('utf8'))
+        }
         catch { return 'invalid' }
         return declaresProfileBundle(pkg) ? 'valid' : 'invalid'
       }
@@ -151,11 +156,13 @@ async function main() {
 
   let cursor = 0
   let done = 0
+  let skippedThisRun = 0
   const worker = async () => {
     while (cursor < todo.length) {
       const p = todo[cursor++]
       if (!p) continue
       const result = await checkOne(p.full_name)
+      if (result === 'skipped') skippedThisRun++
       metadata[p.full_name] = { ...metadata[p.full_name], lastAttemptAt: Date.now(), result }
       if (result !== 'skipped') {
         validated[p.full_name] = result
@@ -180,7 +187,8 @@ async function main() {
   const v = Object.values(validated).filter(x => x === 'valid').length
   const inv = Object.values(validated).filter(x => x === 'invalid').length
   const sk = Object.values(validated).filter(x => x === 'skipped').length
-  console.log(`[${new Date().toISOString()}] ✅ 完成：valid=${v}, invalid=${inv}, skipped=${sk}`)
+  console.log(`[${new Date().toISOString()}] 校验结束：valid=${v}, invalid=${inv}, skipped=${sk}, 本轮网络失败=${skippedThisRun}`)
+  if (skippedThisRun > 0) process.exitCode = 2
 }
 
 main().catch(e => { console.error(e); process.exit(1) })
