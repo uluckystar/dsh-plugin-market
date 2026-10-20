@@ -13,7 +13,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const projectRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const checkout = resolve(process.env.DSH_CHECKOUT ?? '/Volumes/aigo/work/deepseek-harness')
+const checkout = resolve(process.env.DSH_CHECKOUT ?? resolve(projectRoot, '../../../deepseek-harness'))
 
 /** 需要链接的 DSH 包：checkout 相对路径 -> node_modules 下的包名。 */
 const LINKS = {

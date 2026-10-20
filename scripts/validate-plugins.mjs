@@ -25,7 +25,7 @@ import { ProxyAgent } from 'undici'
 const base = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 const catalogPath = join(base, 'storages', 'plugin_market_catalog.json')
 const validatedPath = join(base, 'storages', 'plugin_market_validated_bundle_v1.json')
-const invalidRecheckPath = join(base, 'storages', 'plugin_market_invalid_recheck.json')
+const validationMetaPath = join(base, 'storages', 'plugin_market_validation_meta.json')
 const catalogSourcePath = process.env.PLUGIN_MARKET_CATALOG_SOURCE ?? ''
 const recheckValid = process.env.PLUGIN_MARKET_RECHECK_VALID === '1' || process.argv.includes('--recheck-valid')
 /** invalid 重查周期(天):作者修复声明后无需人工干预,到期自动重查转绿。默认 7 天。 */
@@ -93,26 +93,29 @@ async function checkOne(fullName) {
   const [owner, repo] = String(fullName).split('/')
   if (!owner || !repo) return 'invalid'
   for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 12000)
     try {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 12000)
       const resp = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/HEAD/package.json`, fetchOptions(controller.signal))
-      clearTimeout(timer)
       if (resp.status === 404) return 'invalid'
-      if (!resp.ok) continue
-      let pkg
-      try {
-        pkg = JSON.parse((await resp.text()).replace(/^\uFEFF/, ''))
-      } catch {
-        return 'invalid'
+      if (resp.ok) {
+        let pkg
+        try { pkg = JSON.parse((await resp.text()).replace(/^\uFEFF/, '')) }
+        catch { return 'invalid' }
+        return declaresProfileBundle(pkg) ? 'valid' : 'invalid'
       }
-      return declaresProfileBundle(pkg) ? 'valid' : 'invalid'
     } catch {
-      // transient network error: retry once
-    }
+      // Leave transient failures pending instead of classifying them invalid.
+    } finally { clearTimeout(timer) }
     await new Promise(r => setTimeout(r, 300))
   }
   return 'skipped'
+}
+
+function writeAtomic(path, value) {
+  const temp = path + '.' + process.pid + '.tmp'
+  writeFileSync(temp, JSON.stringify(value), { encoding: 'utf8', mode: 0o600 })
+  renameSync(temp, path)
 }
 
 async function main() {
@@ -127,31 +130,21 @@ async function main() {
     ? JSON.parse(readFileSync(validatedPath, 'utf8'))
     : {}
 
-  let todo = [...plugins]
-    .sort((a, b) => (b.stargazers_count ?? 0) - (a.stargazers_count ?? 0))
-    .filter(p => {
-      const current = validated[p.full_name]
-      if (recheckValid) return current !== 'invalid'
-      return current !== 'valid' && current !== 'invalid'
-    })
+  let metadata = {}
+  try { metadata = JSON.parse(readFileSync(validationMetaPath, 'utf8')) } catch { /* legacy cache */ }
+  const age = p => Date.now() - Number(metadata[p.full_name]?.checkedAt || 0)
+  const priority = p => !['valid', 'invalid'].includes(validated[p.full_name]) ? 0 : 1
+  let todo = plugins.filter(p => {
+    const status = validated[p.full_name]
+    if (recheckValid && status === 'valid') return true
+    if (status === 'invalid') return age(p) > INVALID_RECHECK_DAYS * 86400_000
+    if (status === 'valid') return age(p) > 30 * 86400_000
+    return true
+  }).sort((a, b) => priority(a) - priority(b)
+    || Number(metadata[a.full_name]?.lastAttemptAt || 0) - Number(metadata[b.full_name]?.lastAttemptAt || 0)
+    || Number(b.stargazers_count || 0) - Number(a.stargazers_count || 0))
   const discoveredTodo = todo.length
-  if (maxItems > 0 && todo.length > maxItems) todo = todo.slice(0, maxItems)
-
-  // invalid 自动重查:超过周期(默认 7 天)把 invalid 重新纳入队列,作者补声明后自然转绿。
-  // sidecar 文件记录上次全量重查时间;只在到期当轮触发,不占用日常增量校验。
-  let recheckInvalid = false
-  try {
-    const last = JSON.parse(readFileSync(invalidRecheckPath, 'utf8'))
-    if (typeof last.at === 'number' && Date.now() - last.at > INVALID_RECHECK_DAYS * 86400_000) recheckInvalid = true
-  } catch { recheckInvalid = true } // 无记录 → 首轮触发
-  if (recheckInvalid) {
-    const invalids = Object.entries(validated).filter(([, v]) => v === 'invalid').map(([k]) => k)
-    const invSet = new Set(invalids)
-    for (const p of todo) invSet.delete(p.full_name) // 已在 todo 的不重复
-    for (const name of invSet) todo.push({ full_name: name })
-    console.log(`invalid 到期重查: ${invalids.length} 个(每 ${INVALID_RECHECK_DAYS} 天)`)
-  }
-
+  if (maxItems > 0) todo = todo.slice(0, maxItems)
   mkdirSync(join(validatedPath, '..'), { recursive: true })
   console.log(`共 ${plugins.length} 个候选，已严格校验 ${Object.keys(validated).length}，本轮待校验 ${todo.length}/${discoveredTodo}${recheckValid ? '（重查 valid/skipped）' : ''}${maxItems > 0 ? `（上限 ${maxItems}）` : ''}`)
   console.log(`proxy: ${proxyUrl !== '' ? '已配置' : '未配置'}；concurrency: ${concurrency}`)
@@ -162,10 +155,16 @@ async function main() {
     while (cursor < todo.length) {
       const p = todo[cursor++]
       if (!p) continue
-      validated[p.full_name] = await checkOne(p.full_name)
+      const result = await checkOne(p.full_name)
+      metadata[p.full_name] = { ...metadata[p.full_name], lastAttemptAt: Date.now(), result }
+      if (result !== 'skipped') {
+        validated[p.full_name] = result
+        metadata[p.full_name].checkedAt = Date.now()
+      } else if (!validated[p.full_name]) validated[p.full_name] = 'skipped'
       done++
       if (done % 50 === 0) {
-        writeFileSync(validatedPath, JSON.stringify(validated), 'utf8')
+        writeAtomic(validatedPath, validated)
+        writeAtomic(validationMetaPath, metadata)
         const v = Object.values(validated).filter(x => x === 'valid').length
         const inv = Object.values(validated).filter(x => x === 'invalid').length
         const sk = Object.values(validated).filter(x => x === 'skipped').length
@@ -176,9 +175,8 @@ async function main() {
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, todo.length)) }, () => worker()))
-  writeFileSync(validatedPath, JSON.stringify(validated), 'utf8')
-  // 记录本轮 invalid 重查时间(不管是否触发,都推进周期,避免每天全量重查 invalid)
-  writeFileSync(invalidRecheckPath, JSON.stringify({ at: Date.now() }), 'utf8')
+  writeAtomic(validatedPath, validated)
+  writeAtomic(validationMetaPath, metadata)
   const v = Object.values(validated).filter(x => x === 'valid').length
   const inv = Object.values(validated).filter(x => x === 'invalid').length
   const sk = Object.values(validated).filter(x => x === 'skipped').length

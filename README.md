@@ -104,3 +104,11 @@ MIT —— 详见 [LICENSE](./LICENSE)。
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness)——一切皆插件的 Agent 运行时
 - [MyDSH 社区](https://mydsh.dev)——非官方插件大全数据源
+
+## 2026-10 维护说明
+
+本站目录是候选收录，不是安装量或全部可用插件数。`valid` 仅表示历史检查找到插件 bundle 声明，不等于指定 DSH 版本安装、启动或安全审查通过。当前分类规则与网站统一，并包含生态桥／兼容层。
+
+校验任务使用 `$DSH_HOME`，可通过 `PLUGIN_MARKET_CATALOG_SOURCE` 指定目录源，不强制使用某台电脑的回环代理。`PLUGIN_MARKET_VALIDATE_MAX_ITEMS` 同时约束新增与到期复查；有效条目周期复查，无效条目可在作者修复后重新校验。结果原子写入，网络临时失败不将已有有效结果改判为无效。
+
+运行 `node scripts/test-validation.mjs` 验证批量上限和结果落盘。详情页的版本依赖来自作者声明；没有实测记录时明确标记未实测，不承诺运行兼容。

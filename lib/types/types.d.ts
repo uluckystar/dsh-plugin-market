@@ -4,7 +4,7 @@
  * （tsconfig.client.json）编译。
  */
 /** 插件分类 id（与 mydsh.dev 插件大全的分类一致）。 */
-export type MarketCategoryId = 'agent' | 'mcp' | 'devtools' | 'ui' | 'vision' | 'llm' | 'memory' | 'data' | 'integrations' | 'other';
+export type MarketCategoryId = 'bridge' | 'notify' | 'automation' | 'cloud' | 'agent' | 'mcp' | 'devtools' | 'ui' | 'vision' | 'llm' | 'memory' | 'data' | 'integrations' | 'other';
 /** 分类定义（id + 匹配 topics）。 */
 export interface MarketCategory {
     readonly id: MarketCategoryId;
@@ -37,12 +37,9 @@ export interface MarketPlugin {
         readonly reviewed_at?: string;
     };
 }
-/**
- * 插件分类：按 topics 匹配第一个命中的分类，未命中归 other。
- * host（gateway）与 client（MarketTab）共用，保证分类规则单一来源。
- */
 export declare function categoryOf(p: {
     readonly topics?: readonly string[];
+    readonly full_name?: string;
 }): MarketCategoryId;
 /** 分类浏览结果。 */
 export interface MarketBrowseResult {

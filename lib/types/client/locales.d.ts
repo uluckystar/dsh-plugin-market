@@ -8,6 +8,10 @@ export declare const zh: {
     searchTab: string;
     installedTab: string;
     cat_all: string;
+    cat_bridge: string;
+    cat_notify: string;
+    cat_automation: string;
+    cat_cloud: string;
     cat_agent: string;
     cat_mcp: string;
     cat_devtools: string;
@@ -89,6 +93,10 @@ export declare const en: {
     searchTab: string;
     installedTab: string;
     cat_all: string;
+    cat_bridge: string;
+    cat_notify: string;
+    cat_automation: string;
+    cat_cloud: string;
     cat_agent: string;
     cat_mcp: string;
     cat_devtools: string;
