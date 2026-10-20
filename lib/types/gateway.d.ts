@@ -53,13 +53,16 @@ export declare class PluginMarketGateway extends Service {
     private validating;
     /** 校验磁盘路径。 */
     private readonly validatedDiskPath;
+    private readonly validatedRuntimeDiskPath;
+    private readonly validatedMetadataPath;
+    private validatedBaseline;
     /** fetch options：Node fetch 不会自动读取 HTTP_PROXY，外部请求必须显式 dispatcher。 */
     private fetchOptions;
     /** 拉取仓库 package.json：优先 API(token 可用时)，否则走 raw/HEAD，避免未认证 API 60/h 限流。 */
     private fetchPackageManifest;
-    /** 加载已缓存的有效性结果。 */
+    /** The scheduled cache has one writer; each profile owns a separate runtime overlay. */
     private loadValidated;
-    /** 保存有效性结果到磁盘。 */
+    /** Persist only this profile's changed checks; never overwrite the scheduled cache. */
     private saveValidated;
     /** 后台批量校验：拉每个仓库 package.json，只接受 dsh.bundle.patch。 */
     private startValidation;
@@ -71,7 +74,7 @@ export declare class PluginMarketGateway extends Service {
     private securityCache;
     /** 拉取网站安全报告+禁用清单,构建 full_name → 安全状态 映射。失败返回空(不影响浏览)。 */
     private securityMap;
-    /** 检索：本地匹配 + 可选 AI 推荐（ai=false 秒回；AI 最多等 6 秒，失败不阻塞）。 */
+    /** 检索：本地匹配 + 可选 AI 推荐（ai=false 秒回；AI 最多等 30 秒，失败不阻塞）。 */
     search(query: string, ai: boolean): Promise<MarketSearchResult>;
     /** 一键安装：先校验仓库是有效 DSH 插件（有 dsh.bundle/client 声明或 cordis.patch.yml），再 pnpm add。 */
     install(fullName: string): Promise<MarketInstallResult>;

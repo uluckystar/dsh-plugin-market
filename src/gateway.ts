@@ -8,7 +8,7 @@
 
 import { exec as execCallback, execFileSync, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
@@ -169,6 +169,8 @@ export class PluginMarketGateway extends Service {
     const safeProfile = this.config.profileName.replace(/[^A-Za-z0-9_.-]/g, '_')
     this.catalogDiskPath = join(base, 'storages', 'plugin_market_catalog.json')
     this.validatedDiskPath = join(base, 'storages', VALIDATED_CACHE_FILE)
+    this.validatedRuntimeDiskPath = join(base, 'storages', `plugin_market_runtime_validation_${safeProfile}.json`)
+    this.validatedMetadataPath = join(base, 'storages', 'plugin_market_validation_meta.json')
     this.lifecycleDiskPath = join(base, 'storages', `plugin_market_lifecycle_${safeProfile}.json`)
     this.fetchDispatcher = this.config.proxyUrl !== '' ? new ProxyAgent(this.config.proxyUrl) : undefined
     this.loadValidated()
@@ -245,6 +247,9 @@ export class PluginMarketGateway extends Service {
   private validating = false
   /** 校验磁盘路径。 */
   private readonly validatedDiskPath: string
+  private readonly validatedRuntimeDiskPath: string
+  private readonly validatedMetadataPath: string
+  private validatedBaseline: Record<string, ValidationStatus> = {}
 
   /** fetch options：Node fetch 不会自动读取 HTTP_PROXY，外部请求必须显式 dispatcher。 */
   private fetchOptions(headers: Record<string, string>, signal?: AbortSignal): RequestInit & { dispatcher?: any } {
@@ -279,27 +284,49 @@ export class PluginMarketGateway extends Service {
     } finally { clearTimeout(timer) }
   }
 
-  /** 加载已缓存的有效性结果。 */
-  private loadValidated(): void {
+  /** The scheduled cache has one writer; each profile owns a separate runtime overlay. */
+  private loadValidated(force = false): void {
+    if (this.validating && !force) return
     try {
-      if (existsSync(this.validatedDiskPath)) {
-        const disk = JSON.parse(readFileSync(this.validatedDiskPath, 'utf8')) as Record<string, ValidationStatus>
-        this.validatedCache = disk
+      const scheduled = existsSync(this.validatedDiskPath)
+        ? JSON.parse(readFileSync(this.validatedDiskPath, 'utf8')) as Record<string, ValidationStatus> : {}
+      const metadata = existsSync(this.validatedMetadataPath)
+        ? JSON.parse(readFileSync(this.validatedMetadataPath, 'utf8')) as Record<string, { checkedAt?: number }> : {}
+      const overlay = existsSync(this.validatedRuntimeDiskPath)
+        ? JSON.parse(readFileSync(this.validatedRuntimeDiskPath, 'utf8')) as Record<string, { status: ValidationStatus; checkedAt: number }> : {}
+      const merged = { ...scheduled }
+      for (const [name, entry] of Object.entries(overlay)) {
+        if (!['valid', 'invalid', 'skipped'].includes(entry.status)) continue
+        if (entry.status === 'skipped' && ['valid', 'invalid'].includes(scheduled[name] ?? '')) continue
+        if (entry.checkedAt > Number(metadata[name]?.checkedAt ?? 0)) merged[name] = entry.status
       }
-    } catch { /* ignore */ }
+      this.validatedCache = merged
+      this.validatedBaseline = { ...merged }
+    } catch { /* Preserve the last complete in-memory snapshot. */ }
   }
 
-  /** 保存有效性结果到磁盘。 */
+  /** Persist only this profile's changed checks; never overwrite the scheduled cache. */
   private saveValidated(): void {
+    const changes = Object.entries(this.validatedCache).filter(([name, status]) => this.validatedBaseline[name] !== status)
+    if (!changes.length) return
+    let temp = ''
     try {
-      mkdirSync(join(this.validatedDiskPath, '..'), { recursive: true })
-      writeFileSync(this.validatedDiskPath, JSON.stringify(this.validatedCache), 'utf8')
-    } catch { /* ignore */ }
+      const path = this.validatedRuntimeDiskPath
+      mkdirSync(join(path, '..'), { recursive: true })
+      const overlay = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as Record<string, { status: ValidationStatus; checkedAt: number }> : {}
+      for (const [name, status] of changes) overlay[name] = { status, checkedAt: Date.now() }
+      temp = path + '.' + process.pid + '.' + Date.now() + '.tmp'
+      writeFileSync(temp, JSON.stringify(overlay), { encoding: 'utf8', mode: 0o600 })
+      renameSync(temp, path)
+      this.loadValidated(true)
+    } catch { /* Keep unsaved changes in memory for the next bounded batch. */ }
+    finally { if (temp && existsSync(temp)) unlinkSync(temp) }
   }
 
   /** 后台批量校验：拉每个仓库 package.json，只接受 dsh.bundle.patch。 */
   private async startValidation(plugins: readonly MarketPlugin[]): Promise<void> {
     if (this.validating) return
+    this.loadValidated()
     this.validating = true
     try {
       // 按星数降序（热门优先）；skipped 是上轮网络暂不可用，本轮继续重试。
@@ -341,13 +368,7 @@ export class PluginMarketGateway extends Service {
 
   /** 过滤：只显示已严格确认含 dsh.bundle.patch 的插件；未知/跳过/无效都不展示。 */
   private filterValid(plugins: readonly MarketPlugin[]): MarketPlugin[] {
-    // 磁盘文件由独立脚本 validate-plugins.mjs 更新；这里每次读取保证实时。
-    try {
-      if (existsSync(this.validatedDiskPath)) {
-        const disk = JSON.parse(readFileSync(this.validatedDiskPath, 'utf8')) as Record<string, ValidationStatus>
-        this.validatedCache = disk
-      }
-    } catch { /* 读取失败用内存缓存 */ }
+    this.loadValidated()
     return plugins.filter(p => this.validatedCache[p.full_name] === 'valid')
   }
 
@@ -418,7 +439,7 @@ export class PluginMarketGateway extends Service {
     return map
   }
 
-  /** 检索：本地匹配 + 可选 AI 推荐（ai=false 秒回；AI 最多等 6 秒，失败不阻塞）。 */
+  /** 检索：本地匹配 + 可选 AI 推荐（ai=false 秒回；AI 最多等 30 秒，失败不阻塞）。 */
   async search(query: string, ai: boolean): Promise<MarketSearchResult> {
     const q = (query ?? '').trim()
     if (q.length === 0) return { ok: true, query: q, local: [], ai: [], total: 0 }
@@ -434,11 +455,11 @@ export class PluginMarketGateway extends Service {
       .slice(0, 20)
       .map(x => ({ ...x.p, installed: installed.has(x.p.full_name) }))
 
-    // AI 推荐（仅 ai=true 时调用；6 秒超时——AI 慢不阻塞本地结果）
+    // AI 推荐（仅 ai=true 时调用；30 秒整体超时，失败保留本地结果）
     let aiPicks: MarketPlugin[] = []
     if (ai) {
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 6000)
+      const timer = setTimeout(() => controller.abort(), 30000)
       const candidatePool = (scored.length ? scored : all).slice(0, 40)
       try {
       const candidates = candidatePool.map(p => ({
