@@ -112,3 +112,7 @@ MIT —— 详见 [LICENSE](./LICENSE)。
 校验任务使用 `$DSH_HOME`，可通过 `PLUGIN_MARKET_CATALOG_SOURCE` 指定目录源，不强制使用某台电脑的回环代理。`PLUGIN_MARKET_VALIDATE_MAX_ITEMS` 同时约束新增与到期复查；有效条目周期复查，无效条目可在作者修复后重新校验。结果原子写入，网络临时失败不将已有有效结果改判为无效。
 
 运行 `node scripts/test-validation.mjs` 验证批量上限和结果落盘。详情页的版本依赖来自作者声明；没有实测记录时明确标记未实测，不承诺运行兼容。
+
+### 0.1.2 搜索维护
+
+本地检索先判断关键词匹配，星数只对已匹配条目加权，避免无关高星仓库出现在结果中。AI 精排使用相关候选，并拒绝候选集外的返回；6秒超时覆盖完整响应体，失败仍返回本地结果。`node scripts/test-search.mjs` 覆盖这些行为。

@@ -107,8 +107,8 @@ function tokenize(s: string): string[] {
 function scorePlugin(p: MarketPlugin, tokens: string[]): number {
   let score = 0
   const name = (p.full_name ?? '').toLowerCase()
-  const zh = p.zh_desc ?? ''
-  const en = p.en_desc ?? ''
+  const zh = (p.zh_desc ?? '').toLowerCase()
+  const en = (p.en_desc ?? '').toLowerCase()
   const desc = (p.description ?? '').toLowerCase()
   const tags = (p.topics ?? []).join(' ').toLowerCase()
   for (const t of tokens) {
@@ -118,7 +118,7 @@ function scorePlugin(p: MarketPlugin, tokens: string[]): number {
     if (desc.includes(t)) score += 3
     if (tags.includes(t)) score += 3
   }
-  score += Math.log1p(p.stargazers_count ?? 0) * 0.5
+  if (score > 0) score += Math.log1p(p.stargazers_count ?? 0) * 0.5
   return score
 }
 
@@ -437,20 +437,20 @@ export class PluginMarketGateway extends Service {
     // AI 推荐（仅 ai=true 时调用；6 秒超时——AI 慢不阻塞本地结果）
     let aiPicks: MarketPlugin[] = []
     if (ai) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 6000)
+      const candidatePool = (scored.length ? scored : all).slice(0, 40)
       try {
-      const candidates = all.slice(0, 200).map(p => ({
+      const candidates = candidatePool.map(p => ({
         full_name: p.full_name, zh_desc: p.zh_desc ?? '', description: p.description ?? '',
         language: p.language, stars: p.stargazers_count, html_url: p.html_url,
       }))
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 6000)
       const resp = await fetch(`${this.config.marketBaseUrl}/api/ai-search`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'user-agent': 'dsh-plugin-market/0.1' },
         body: JSON.stringify({ query: q, candidates, exclude: [] }),
         signal: controller.signal,
       })
-      clearTimeout(timer)
       if (resp.ok) {
         const text = await resp.text()
         // 流式输出：累积全部 delta.content 成一个 JSON 行，再统一提取 full_name
@@ -471,12 +471,12 @@ export class PluginMarketGateway extends Service {
         }
         if (names.size > 0) {
           aiPicks = [...names]
-            .map(n => all.find(p => p.full_name === n))
+            .map(n => candidatePool.find(p => p.full_name === n))
             .filter((p): p is MarketPlugin => p !== undefined)
             .map(p => ({ ...p, installed: installed.has(p.full_name) }))
         }
       }
-      } catch { /* AI 失败不阻塞 */ }
+      } catch { /* AI 失败不阻塞本地结果 */ } finally { clearTimeout(timer) }
     }
 
     return { ok: true, query: q, local: scored, ai: aiPicks, total: scored.length }
