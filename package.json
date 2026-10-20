@@ -66,5 +66,11 @@
   "homepage": "https://mydsh.dev/plugins",
   "bugs": {
     "url": "https://github.com/uluckystar/dsh-plugin-market/issues"
-  }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ]
 }
