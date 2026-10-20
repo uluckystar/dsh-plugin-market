@@ -19,7 +19,7 @@
         # 安装命令前缀：npx pnpm@<版本> 匹配 profile packageManager 声明的 pnpm
         pnpmCommand: 'npx -y pnpm@11.7.0'
         # 本机代理（加速 GitHub 下载）；不需要可置空 ''
-        proxyUrl: 'http://127.0.0.1:7897'
+        proxyUrl: ''
         # 一键安装超时（毫秒）
         installTimeoutMs: 300000
         # GitHub token（批量校验插件有效性，5000 次/小时；可置空走未认证限流）
