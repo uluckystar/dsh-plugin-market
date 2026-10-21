@@ -13,3 +13,4 @@ export declare const name = "plugin-market";
 export declare const inject: readonly ["webServer"];
 /** 插件入口。 */
 export declare function apply(ctx: Context, config?: Partial<PluginMarketConfig>): void;
+//# sourceMappingURL=index.d.ts.map

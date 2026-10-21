@@ -68,10 +68,11 @@ function refreshCatalogFromSource() {
   const plugins = []
   for (const item of sourcePlugins) {
     const fullName = typeof item?.full_name === 'string' ? item.full_name.trim() : ''
-    if (!/^[^/\s]+\/[^/\s]+$/.test(fullName) || seen.has(fullName)) continue
+    if ((!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName) && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/tree\/[0-9a-f]{40}\/.+/.test(fullName)) || seen.has(fullName)) continue
     seen.add(fullName)
     plugins.push({
       full_name: fullName,
+      ...(item.install_policy ? {install_policy:item.install_policy} : {}),
       description: item.description ?? '',
       zh_desc: item.zh_desc,
       en_desc: item.en_desc,
@@ -92,6 +93,7 @@ function refreshCatalogFromSource() {
 
 /** 校验单个仓库：返回 'valid' | 'invalid' | 'skipped' */
 async function checkOne(fullName) {
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName) || fullName.split('/').some(p => p === '.' || p === '..')) return 'skipped'
   const [owner, repo] = String(fullName).split('/')
   if (!owner || !repo) return 'invalid'
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -139,7 +141,7 @@ async function main() {
   try { metadata = JSON.parse(readFileSync(validationMetaPath, 'utf8')) } catch { /* legacy cache */ }
   const age = p => Date.now() - Number(metadata[p.full_name]?.checkedAt || 0)
   const priority = p => !['valid', 'invalid'].includes(validated[p.full_name]) ? 0 : 1
-  let todo = plugins.filter(p => {
+  let todo = plugins.filter(p => /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(p.full_name)).filter(p => {
     const status = validated[p.full_name]
     if (recheckValid && status === 'valid') return true
     if (status === 'invalid') return age(p) > INVALID_RECHECK_DAYS * 86400_000

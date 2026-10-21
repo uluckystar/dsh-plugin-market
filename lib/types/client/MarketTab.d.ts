@@ -20,3 +20,4 @@ export interface MarketTabInjected {
 export type MarketTabProps = PropsRuntime<'settings.plugins.tab'> & PropsLocale<'settings.pluginMarket'> & InjectFace<MarketTabInjected>;
 /** Render the plugin market Settings tab. */
 export declare function MarketTab({ search, browse, install, uninstall, enable, disable, status, lifecycle, restart, assess, installed, t }: MarketTabProps): ReactNode;
+//# sourceMappingURL=MarketTab.d.ts.map

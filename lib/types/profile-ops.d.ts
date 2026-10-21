@@ -54,3 +54,4 @@ export declare function knownCoreEntryIds(basePatchDir: string, webPatchDir: str
  * @returns 冲突的 id 列表(空 = 无冲突)。
  */
 export declare function patchConflictIds(pluginDir: string, coreIds: ReadonlySet<string>): string[];
+//# sourceMappingURL=profile-ops.d.ts.map

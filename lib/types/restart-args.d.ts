@@ -10,3 +10,4 @@ export interface RestartArgSanitizeResult {
  * Keep all other args intact, but strip the fatal host binding.
  */
 export declare function sanitizeDshRestartArgs(args: readonly string[]): RestartArgSanitizeResult;
+//# sourceMappingURL=restart-args.d.ts.map

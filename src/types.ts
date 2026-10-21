@@ -35,6 +35,8 @@ export const MARKET_CATEGORIES: readonly MarketCategory[] = [
 
 /** mydsh.dev 插件大全中的一条插件（精简投影）。 */
 export interface MarketPlugin {
+  /** Immutable subdirectory packages have author docs, not a root install spec. */
+  readonly install_policy?: 'author_documentation_only'
   readonly full_name: string
   readonly description: string
   readonly zh_desc?: string

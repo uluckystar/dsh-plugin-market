@@ -1,3 +1,10 @@
+## 0.1.4 — 2026-10-21
+
+- Immutable subdirectory entries are documentation-only: never fetch a root manifest or run a root GitHub install spec for them. Backend rejection happens before profile access or package-manager execution.
+- Root validation caches/reports do not attest child packages. Explicit documentation-only rows stay visible with an install/runtime-unverified label; unsupported paths are not sent to the root batch validator. Existing lifecycle actions for actual installed npm dependencies remain unchanged.
+- Build emits current declarations/source maps with corresponding TypeScript source in the package. CSS ids and class-map ordering are independent of temporary build paths.
+- These are boundary/build checks, not a third-party package installation, compatibility or security certification.
+
 # Changelog
 
 All notable changes to dsh-plugin-market are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/), versioning follows [SemVer](https://semver.org/lang/zh-CN/).

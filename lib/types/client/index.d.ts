@@ -15,3 +15,4 @@ export declare const NS = "settings.pluginMarket";
 export declare const inject: readonly ["slots", "locale"];
 /** Contribute the lazy market tab to the Plugins settings section. */
 export declare function apply(ctx: ClientContext): void;
+//# sourceMappingURL=index.d.ts.map

@@ -219,6 +219,7 @@ export class PluginMarketGateway extends Service {
     const data = await resp.json() as { plugins?: MarketPlugin[] }
     const plugins = (data.plugins ?? []).map(p => ({
       full_name: p.full_name,
+      ...(p.install_policy === 'author_documentation_only' ? {install_policy: 'author_documentation_only' as const} : {}),
       description: p.description ?? '',
       zh_desc: p.zh_desc,
       en_desc: p.en_desc,
@@ -261,6 +262,7 @@ export class PluginMarketGateway extends Service {
 
   /** 拉取仓库 package.json：优先 API(token 可用时)，否则走 raw/HEAD，避免未认证 API 60/h 限流。 */
   private async fetchPackageManifest(fullName: string): Promise<PackageManifestFetch> {
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName) || fullName.split('/').some(p => p === '.' || p === '..')) return { status: 'unavailable' }
     const [owner, repo] = fullName.split('/')
     if (!owner || !repo) return { status: 'missing' }
     const headers: Record<string, string> = {
@@ -300,6 +302,8 @@ export class PluginMarketGateway extends Service {
         if (entry.status === 'skipped' && ['valid', 'invalid'].includes(scheduled[name] ?? '')) continue
         if (entry.checkedAt > Number(metadata[name]?.checkedAt ?? 0)) merged[name] = entry.status
       }
+      // Root-manifest cache entries never attest an immutable child package.
+      for (const name of Object.keys(merged)) if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(name)) merged[name] = 'skipped'
       this.validatedCache = merged
       this.validatedBaseline = { ...merged }
     } catch { /* Preserve the last complete in-memory snapshot. */ }
@@ -332,6 +336,7 @@ export class PluginMarketGateway extends Service {
       // 按星数降序（热门优先）；skipped 是上轮网络暂不可用，本轮继续重试。
       const todo = [...plugins]
         .sort((a, b) => (b.stargazers_count ?? 0) - (a.stargazers_count ?? 0))
+        .filter(p => /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(p.full_name))
         .filter(p => this.validatedCache[p.full_name] !== 'valid' && this.validatedCache[p.full_name] !== 'invalid')
       console.log(`[plugin-market] 开始严格校验 ${todo.length} 个插件… proxy=${this.fetchDispatcher !== undefined ? '已配置' : '未配置'}`)
 
@@ -366,10 +371,10 @@ export class PluginMarketGateway extends Service {
     }
   }
 
-  /** 过滤：只显示已严格确认含 dsh.bundle.patch 的插件；未知/跳过/无效都不展示。 */
+  /** 可安装根包需声明校验；已标记的子目录条目只展示作者文档，无安装/评估动作。 */
   private filterValid(plugins: readonly MarketPlugin[]): MarketPlugin[] {
     this.loadValidated()
-    return plugins.filter(p => this.validatedCache[p.full_name] === 'valid')
+    return plugins.filter(p => (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(p.full_name) && this.validatedCache[p.full_name] === 'valid') || (p.install_policy === 'author_documentation_only' && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/tree\/[0-9a-f]{40}\/.+/.test(p.full_name)))
   }
 
   /** 分类浏览：按分类列出插件（星数降序；limit=0 返回全部），附各分类计数。 */
@@ -507,8 +512,8 @@ export class PluginMarketGateway extends Service {
   async install(fullName: string): Promise<MarketInstallResult> {
     const started = Date.now()
     const name = (fullName ?? '').trim()
-    if (this.validPackageName(name) === null) {
-      return { ok: false, fullName: name, detail: '仓库名格式应为 owner/repo', restartRequired: false, durationMs: 0 }
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(name) || name.split('/').some(p => p === '.' || p === '..')) {
+      return { ok: false, fullName: name, detail: '仅支持直接安装 owner/repo；子目录包请按固定版本的作者文档操作。', restartRequired: false, durationMs: 0 }
     }
     const dir = this.profileDir()
     if (!dir) {
@@ -1152,6 +1157,10 @@ export function makeRoutes(gateway: PluginMarketGateway): import('@deepseek-ai/d
   }
 
   return [
+    {
+      kind: 'exact', path: '/api/plugin-market/capabilities',
+      handler: (_req, res) => json(res, 200, {ok: true, version: '0.1.4', immutablePackagePolicy: 'author_documentation_only', rootManifestScope: 'owner/repo only', childInstallRejectedBeforeProfile: true}),
+    },
     {
       kind: 'exact', path: '/api/plugin-market/search',
       handler: async (req, res) => {

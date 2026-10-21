@@ -66,7 +66,7 @@ export declare class PluginMarketGateway extends Service {
     private saveValidated;
     /** 后台批量校验：拉每个仓库 package.json，只接受 dsh.bundle.patch。 */
     private startValidation;
-    /** 过滤：只显示已严格确认含 dsh.bundle.patch 的插件；未知/跳过/无效都不展示。 */
+    /** 可安装根包需声明校验；已标记的子目录条目只展示作者文档，无安装/评估动作。 */
     private filterValid;
     /** 分类浏览：按分类列出插件（星数降序；limit=0 返回全部），附各分类计数。 */
     browse(category: string, limit?: number): Promise<MarketBrowseResult>;
@@ -143,3 +143,4 @@ export declare class PluginMarketGateway extends Service {
 }
 /** 路由表：浏览器面板经同源 JSON 接口读写。 */
 export declare function makeRoutes(gateway: PluginMarketGateway): import('@deepseek-ai/dsh-host-webserver').WebRoute[];
+//# sourceMappingURL=gateway.d.ts.map

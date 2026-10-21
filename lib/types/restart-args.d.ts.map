@@ -1,0 +1,1 @@
+{"version":3,"file":"restart-args.d.ts","sourceRoot":"","sources":["../../src/restart-args.ts"],"names":[],"mappings":"AAAA,sEAAsE;AAEtE,MAAM,WAAW,wBAAwB;IACvC,QAAQ,CAAC,IAAI,EAAE,MAAM,EAAE,CAAA;IACvB,QAAQ,CAAC,iBAAiB,EAAE,OAAO,CAAA;CACpC;AAED;;;;;GAKG;AACH,wBAAgB,sBAAsB,CAAC,IAAI,EAAE,SAAS,MAAM,EAAE,GAAG,wBAAwB,CAkBxF"}

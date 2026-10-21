@@ -14,6 +14,8 @@ export interface MarketCategory {
 export declare const MARKET_CATEGORIES: readonly MarketCategory[];
 /** mydsh.dev 插件大全中的一条插件（精简投影）。 */
 export interface MarketPlugin {
+    /** Immutable subdirectory packages have author docs, not a root install spec. */
+    readonly install_policy?: 'author_documentation_only';
     readonly full_name: string;
     readonly description: string;
     readonly zh_desc?: string;
@@ -160,3 +162,4 @@ export interface MarketToggleResult {
     /** 修改前 profile 备份文件路径(可回滚)。 */
     readonly backupPath?: string;
 }
+//# sourceMappingURL=types.d.ts.map

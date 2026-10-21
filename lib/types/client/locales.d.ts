@@ -2,6 +2,8 @@
 /** Simplified Chinese dictionary and key source of truth. */
 export declare const zh: {
     tab: string;
+    packageDocs: string;
+    packageUnverified: string;
     intro: string;
     market_site: string;
     browseTab: string;
@@ -87,6 +89,8 @@ export type PluginMarketLocaleKey = keyof typeof zh;
 /** English dictionary checked against the Chinese key set. */
 export declare const en: {
     tab: string;
+    packageDocs: string;
+    packageUnverified: string;
     intro: string;
     market_site: string;
     browseTab: string;
@@ -167,3 +171,4 @@ export declare const en: {
     retry: string;
     loadMore: string;
 };
+//# sourceMappingURL=locales.d.ts.map

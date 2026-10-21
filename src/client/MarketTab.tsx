@@ -75,6 +75,9 @@ function statusActions(
   onAssess: (name: string) => void,
   t: (key: PluginMarketLocaleKey) => string,
 ): ReactNode {
+  if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/tree\/[0-9a-f]{40}\/.+/.test(p.full_name)) {
+    return <a className={css.rowLink} href={`https://github.com/${p.full_name}`} target="_blank" rel="noopener noreferrer">{t('packageDocs')}</a>
+  }
   const btns: ReactNode[] = []
   const push = (node: ReactNode) => { btns.push(node) }
   switch (status) {
@@ -120,7 +123,8 @@ function PluginRow(
   const desc = p.zh_desc ?? p.en_desc ?? p.description ?? t('noDesc')
   // 只有 owner/repo 格式（非依赖名）才可跳 mydsh 详情页
   const isRepo = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(p.full_name)
-  const sec = p.security
+  const isPackage = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/tree\/[0-9a-f]{40}\/.+/.test(p.full_name)
+  const sec = isPackage ? undefined : p.security
   const secBadge = sec ? (
     sec.blocked
       ? <span className={`${css.secBadge} ${css.secBadgeBlock}`} title={t('secBlockedTip')}>🚫 {t('secBlockedShort')}</span>
@@ -135,13 +139,13 @@ function PluginRow(
         <div className={css.rowName}>
           {p.full_name}
           {secBadge}
-          {statusBadge(status, t)}
+          {isPackage ? <span className={css.tagStatus}>{t('packageUnverified')}</span> : statusBadge(status, t)}
         </div>
         <div className={css.rowDesc}>{desc}</div>
         <div className={css.rowMeta}>
           <span>★ {p.stargazers_count.toLocaleString()}</span>
           {p.language ? <span>· {p.language}</span> : null}
-          {isRepo ? (
+          {isRepo || isPackage ? (
             <a className={css.rowLink} href={`https://mydsh.dev/plugin?repo=${encodeURIComponent(p.full_name)}`} target="_blank" rel="noopener">mydsh.dev ↗</a>
           ) : null}
         </div>
